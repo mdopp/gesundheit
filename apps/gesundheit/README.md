@@ -38,7 +38,11 @@ documents, this keeps what it read out of them, per person.
    documents are not read again).
 4. **Asks.** The daily note: four base questions (sleep, energy, mood 1–5;
    pain 0–10) and up to three of the person's own (`/fragen`), a free line.
-   From the page (`/tag`) or from the Bote over MCP.
+   From the page (`/tag`) or from the Bote over MCP. From `FRAGE_UHRZEIT` on,
+   everyone with a login who has not noted the day gets the question once on
+   their own channel (bote-notify `/mitteilung`, `an` = the login); asked is
+   asked, a day without an answer stays a gap. The Bote writes the answer
+   through `tagesnotiz_eintragen` (its SOUL rule, laib#894).
 5. **MCP** on the inner port (`/mcp`, bearer `BOTE_TOKEN`): `fragen`,
    `tagesnotiz_eintragen`, `gesundheit_verlauf`; a person is named by login,
    a child has no channel and so no tool.
@@ -53,6 +57,7 @@ documents, this keeps what it read out of them, per person.
 | `MODEL_URL`, `MODEL_KEY`, `MODEL_NAME` | the lease's proxy, OpenAI-shaped `/chat/completions` |
 | `BEFUND_ARTEN`, `KINDER` | what is a medical record; the people without a login |
 | `WEBHOOK_TOKEN`, `BOTE_TOKEN` | the hook's `X-Gesundheit-Token`; the MCP's bearer |
+| `NOTIFY_URL`, `NOTIFY_TOKEN`, `FRAGE_UHRZEIT` (`20:00`) | bote-notify's `/mitteilung` and its bearer: the daily question, once a day from that time for every login who has not noted the day (laib ADR 0022 §3); empty: nobody is asked |
 | `DATA` (`/data`), `STATUS_FILE` | the store; `laib-status.json` for `laib status` |
 | `LAUF_RUHE_S` (60), `LAUF_SPAETESTENS_S` (600), `LAUF_STUENDLICH_S` (3600) | the run's timing |
 

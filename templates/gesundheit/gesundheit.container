@@ -21,6 +21,10 @@ Environment=MODEL_KEY=${MODEL_KEY}
 Environment=MODEL_NAME=${MODEL_NAME}
 Environment="BEFUND_ARTEN=${BEFUND_ARTEN}"
 Environment="KINDER=${KINDER}"
+# the daily question (ADR 0022 §3): bote-notify over host.containers.internal (its 8645 is published beyond loopback, laib#894)
+Environment=NOTIFY_URL=${NOTIFY_URL}
+Environment=NOTIFY_TOKEN=${NOTIFY_TOKEN}
+Environment=FRAGE_UHRZEIT=${FRAGE_UHRZEIT}
 Environment=DATA=/data
 Volume=${DATA_DIR}/gesundheit:/data:z
 # distroless nonroot runs as 65532: the data folder is made writable for it

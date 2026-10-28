@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,6 +38,10 @@ type Dienst struct {
 	Public     string          // PAPERLESS_PUBLIC_URL, for links
 	StatusFile string
 	Jetzt      func() time.Time
+	// the daily question (laib ADR 0022 §3): bote-notify's /mitteilung with its bearer, from
+	// FrageUm (HH:MM, local time) on; without URL or token nobody is asked
+	NotifyURL, NotifyToken, FrageUm string
+	HTTP                            *http.Client
 
 	mu       sync.Mutex
 	personen []Person
@@ -137,7 +144,88 @@ func (d *Dienst) Takt(ctx context.Context, ruhe, spaetestens, stuendlich time.Du
 			letzter = now
 			d.Lauf(ctx, anlass)
 		}
+		d.Fragen(ctx)
 	}
+}
+
+// Fragen sends the day's question once to every person with a login who
+// has not noted the day yet, from FrageUm on; a person asked today is not
+// asked again, whether or not they answer (a gap stays a gap).
+func (d *Dienst) Fragen(ctx context.Context) int {
+	if d.NotifyURL == "" || d.NotifyToken == "" || d.FrageUm == "" {
+		return 0
+	}
+	now := d.now()
+	um, err := time.ParseInLocation("15:04", d.FrageUm, now.Location())
+	if err != nil {
+		return 0
+	}
+	heute := now.Format("2006-01-02")
+	if now.Before(time.Date(now.Year(), now.Month(), now.Day(), um.Hour(), um.Minute(), 0, 0, now.Location())) {
+		return 0
+	}
+	rec, err := d.Speicher.Record()
+	if err != nil {
+		return 0
+	}
+	schon := map[string]bool{}
+	for _, k := range rec.Gefragt[heute] {
+		schon[k] = true
+	}
+	n := 0
+	for _, p := range d.Personen(ctx) {
+		if p.Kind() || schon[p.Key] {
+			continue
+		}
+		tage, _ := d.Speicher.Tage(p.Key)
+		if len(tage) > 0 && tage[len(tage)-1].Datum == heute {
+			continue
+		}
+		fragen, _ := d.Speicher.Fragen(p.Key)
+		if err := d.mitteilung(ctx, p.Login, frageText(fragen)); err != nil {
+			log.Printf("tagesfrage %s: %v", p.Login, err)
+			continue
+		}
+		if err := d.Speicher.GefragtMerken(heute, p.Key); err != nil {
+			log.Printf("tagesfrage: %v", err)
+		}
+		n++
+	}
+	return n
+}
+
+// frageText is the question as the Bote delivers it: the scales in one
+// line, so the answer can be one line too.
+func frageText(fragen []Frage) string {
+	var teile []string
+	for _, f := range fragen {
+		teile = append(teile, fmt.Sprintf("%s (%d–%d)", strings.TrimSuffix(strings.TrimSuffix(f.Text, " (0 = keine)"), "?"), f.Min, f.Max))
+	}
+	return "Kurz zu deinem Tag: " + strings.Join(teile, " · ") + ". Antworte mir mit den Zahlen in dieser Reihenfolge und, wenn du magst, einem Satz – ich trage es in deine Gesundheit ein."
+}
+
+// mitteilung posts one message for one person to bote-notify.
+func (d *Dienst) mitteilung(ctx context.Context, an, text string) error {
+	b, _ := json.Marshal(map[string]string{"an": an, "text": text})
+	req, err := http.NewRequestWithContext(ctx, "POST", d.NotifyURL, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+d.NotifyToken)
+	c := d.HTTP
+	if c == nil {
+		c = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return fmt.Errorf("bote-notify antwortet %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // Lauf reads the medical documents not read yet, at most proLauf, oldest

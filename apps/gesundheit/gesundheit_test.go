@@ -681,3 +681,57 @@ func TestLoeschenRemovesThePersonsFolderOnly(t *testing.T) {
 		t.Fatal("the record stays: the document is not read again")
 	}
 }
+
+// --- the daily question
+
+func TestTheDailyQuestionOncePerPersonAndDay(t *testing.T) {
+	d, _, _ := aufbau(t)
+	var mu sync.Mutex
+	var sent []map[string]string
+	notify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer n0tify" {
+			http.Error(w, "nope", 401)
+			return
+		}
+		var m map[string]string
+		json.NewDecoder(r.Body).Decode(&m)
+		mu.Lock()
+		sent = append(sent, m)
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer notify.Close()
+	d.NotifyURL, d.NotifyToken, d.FrageUm = notify.URL, "n0tify", "20:00"
+	jetzt := time.Date(2026, 10, 28, 19, 59, 0, 0, time.UTC)
+	d.Jetzt = func() time.Time { return jetzt }
+	// anna noted the day already; ben has not; lena is a child without a channel
+	if _, err := tagesnotiz(d, "anna", "", map[string]int{"schlaf": 3}, "", "seite"); err != nil {
+		t.Fatal(err)
+	}
+	if n := d.Fragen(context.Background()); n != 0 || len(sent) != 0 {
+		t.Fatalf("before the hour: %d %v", n, sent)
+	}
+	jetzt = time.Date(2026, 10, 28, 20, 0, 5, 0, time.UTC)
+	if n := d.Fragen(context.Background()); n != 1 || len(sent) != 1 || sent[0]["an"] != "ben" {
+		t.Fatalf("at the hour: %d %v", n, sent)
+	}
+	if !strings.Contains(sent[0]["text"], "Wie hast du geschlafen (1–5)") || !strings.Contains(sent[0]["text"], "Hattest du Schmerzen (0–10)") {
+		t.Fatalf("text: %s", sent[0]["text"])
+	}
+	// the next ticks of the day: nobody again, whether ben answers or not
+	jetzt = jetzt.Add(2 * time.Hour)
+	if n := d.Fragen(context.Background()); n != 0 || len(sent) != 1 {
+		t.Fatalf("again: %d %v", n, sent)
+	}
+	// the next day both are asked, anna's note was yesterday's
+	jetzt = time.Date(2026, 10, 29, 20, 30, 0, 0, time.UTC)
+	if n := d.Fragen(context.Background()); n != 2 || len(sent) != 3 {
+		t.Fatalf("next day: %d %v", n, sent)
+	}
+	// without a token nothing goes out
+	d.NotifyToken = ""
+	jetzt = time.Date(2026, 10, 30, 20, 30, 0, 0, time.UTC)
+	if n := d.Fragen(context.Background()); n != 0 {
+		t.Fatal("asked without a token")
+	}
+}

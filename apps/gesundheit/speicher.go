@@ -58,10 +58,11 @@ var Grundfragen = []Frage{
 // MaxEigeneFragen caps a person's own questions: a catalogue answered every day stays short.
 const MaxEigeneFragen = 3
 
-// Record is what the program did with each document.
+// Record is what the program did with each document, and whom it asked.
 type Record struct {
 	Gelesen map[string]*Eintrag `json:"gelesen"` // by document id
 	Lauf    *Lauf               `json:"lauf,omitempty"`
+	Gefragt map[string][]string `json:"gefragt,omitempty"` // day → the persons asked for their note that day
 }
 
 // Eintrag is one document's state: read and assigned, or waiting for a person.
@@ -142,6 +143,36 @@ func (s *Speicher) Merken(id string, e *Eintrag) error {
 	}
 	r.Gelesen[id] = e
 	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
+}
+
+// GefragtMerken notes that a person was asked for the day's note; days
+// older than a week are dropped.
+func (s *Speicher) GefragtMerken(tag, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.record()
+	if err != nil {
+		return err
+	}
+	if r.Gefragt == nil {
+		r.Gefragt = map[string][]string{}
+	}
+	r.Gefragt[tag] = append(r.Gefragt[tag], key)
+	for d := range r.Gefragt {
+		if daysBetween(d, tag) > 7 {
+			delete(r.Gefragt, d)
+		}
+	}
+	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
+}
+
+func daysBetween(a, b string) int {
+	ta, err1 := time.Parse("2006-01-02", a)
+	tb, err2 := time.Parse("2006-01-02", b)
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return int(tb.Sub(ta).Hours() / 24)
 }
 
 // LaufMerken writes what the last run did.

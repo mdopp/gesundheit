@@ -27,14 +27,17 @@ func env(name, def string) string {
 
 func main() {
 	d := &Dienst{
-		Paperless:  &Paperless{URL: env("PAPERLESS_URL", "http://host.containers.internal:8000"), Token: os.Getenv("PAPERLESS_TOKEN")},
-		Modell:     &Modell{URL: strings.TrimRight(os.Getenv("MODEL_URL"), "/"), Key: os.Getenv("MODEL_KEY"), Name: os.Getenv("MODEL_NAME")},
-		Speicher:   &Speicher{Dir: env("DATA", "/data")},
-		Arten:      strings.Split(env("BEFUND_ARTEN", "Befund,Arztbrief,Labor,Laborbefund,Röntgen,Atemtest,Lungenfunktion,Arzt"), ","),
-		Kinder:     os.Getenv("KINDER"),
-		Ich:        env("PAPERLESS_USER", "gesundheit"),
-		Public:     os.Getenv("PAPERLESS_PUBLIC_URL"),
-		StatusFile: env("STATUS_FILE", env("DATA", "/data")+"/laib-status.json"),
+		Paperless:   &Paperless{URL: env("PAPERLESS_URL", "http://host.containers.internal:8000"), Token: os.Getenv("PAPERLESS_TOKEN")},
+		Modell:      &Modell{URL: strings.TrimRight(os.Getenv("MODEL_URL"), "/"), Key: os.Getenv("MODEL_KEY"), Name: os.Getenv("MODEL_NAME")},
+		Speicher:    &Speicher{Dir: env("DATA", "/data")},
+		Arten:       strings.Split(env("BEFUND_ARTEN", "Befund,Arztbrief,Labor,Laborbefund,Röntgen,Atemtest,Lungenfunktion,Arzt"), ","),
+		Kinder:      os.Getenv("KINDER"),
+		Ich:         env("PAPERLESS_USER", "gesundheit"),
+		Public:      os.Getenv("PAPERLESS_PUBLIC_URL"),
+		StatusFile:  env("STATUS_FILE", env("DATA", "/data")+"/laib-status.json"),
+		NotifyURL:   os.Getenv("NOTIFY_URL"),
+		NotifyToken: os.Getenv("NOTIFY_TOKEN"),
+		FrageUm:     env("FRAGE_UHRZEIT", "20:00"),
 	}
 	web := &Web{Dienst: d, Secret: os.Getenv("PROXY_SECRET"), Admins: env("ADMIN_GROUP", "admins")}
 
