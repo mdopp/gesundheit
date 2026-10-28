@@ -1,0 +1,15 @@
+IMAGE: ghcr.io/mdopp/gesundheit:latest
+PROXY_SECRET: !secret GESUNDHEIT_PROXY_SECRET
+BOTE_TOKEN: !secret GESUNDHEIT_BOTE_TOKEN
+WEBHOOK_TOKEN: !secret GESUNDHEIT_WEBHOOK_TOKEN
+PAPERLESS_TOKEN: !secret PAPERLESS_GESUNDHEIT_TOKEN   # minted by paperless' post-deploy; empty until then, the status says so
+PAPERLESS_URL: http://host.containers.internal:8000
+PAPERLESS_PUBLIC_URL: https://paperless.${DOMAIN}
+MODEL_URL: ${MODEL_URL}
+MODEL_KEY: ${MODEL_KEY}
+MODEL_NAME: ${MODEL_NAME}
+# document types or tags that are medical records (compared folded); paperless' post-deploy makes them (laib#894)
+BEFUND_ARTEN: Befund,Arztbrief,Labor,Laborbefund,Röntgen,Atemtest,Lungenfunktion,Arzt
+# people without a login whose records the admins keep, comma-separated full names: "Lena Muster, Tom Muster"
+KINDER: ""
+TZ: ${TZ}
