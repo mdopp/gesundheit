@@ -1,0 +1,38 @@
+[Unit]
+Description=Gesundheit (Arztunterlagen als Verlauf, laib#893)
+
+[Container]
+Image=${IMAGE}
+# the pages: loopback only, Caddy in front
+PublishPort=127.0.0.1:18528:8080
+# the hook and the MCP: on the host for the pods (host.containers.internal); nftables keeps it from the LAN (lan: false)
+PublishPort=18529:8081
+Environment=TZ=${TZ}
+Environment=PROXY_SECRET=${PROXY_SECRET}
+Environment=ADMIN_GROUP=admins
+Environment=WEBHOOK_TOKEN=${WEBHOOK_TOKEN}
+Environment=BOTE_TOKEN=${BOTE_TOKEN}
+Environment=PAPERLESS_URL=${PAPERLESS_URL}
+Environment=PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+Environment=PAPERLESS_USER=gesundheit
+Environment=PAPERLESS_PUBLIC_URL=${PAPERLESS_PUBLIC_URL}
+Environment=MODEL_URL=${MODEL_URL}
+Environment=MODEL_KEY=${MODEL_KEY}
+Environment=MODEL_NAME=${MODEL_NAME}
+Environment="BEFUND_ARTEN=${BEFUND_ARTEN}"
+Environment="KINDER=${KINDER}"
+# the daily question (ADR 0022 §3): bote-notify over host.containers.internal (its 8645 is published beyond loopback, laib#894)
+Environment=NOTIFY_URL=${NOTIFY_URL}
+Environment=NOTIFY_TOKEN=${NOTIFY_TOKEN}
+Environment=FRAGE_UHRZEIT=${FRAGE_UHRZEIT}
+Environment=DATA=/data
+Volume=${DATA_DIR}/gesundheit:/data:z
+# distroless nonroot runs as 65532: the data folder is made writable for it
+UserNS=keep-id:uid=65532,gid=65532
+AutoUpdate=registry
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=default.target
