@@ -5,6 +5,7 @@ WEBHOOK_TOKEN: !secret GESUNDHEIT_WEBHOOK_TOKEN
 PAPERLESS_TOKEN: !secret PAPERLESS_GESUNDHEIT_TOKEN   # minted by paperless' post-deploy; empty until then, the status says so
 PAPERLESS_URL: http://host.containers.internal:8000
 PAPERLESS_PUBLIC_URL: https://paperless.${DOMAIN}
+PUBLIC_URL: https://gesundheit.${DOMAIN}            # this page, the link in the daily question (without it: Paperless' address with its first label swapped)
 MODEL_URL: ${MODEL_URL}
 MODEL_KEY: ${MODEL_KEY}
 MODEL_NAME: qwen3.6-35b-a3b   # the household model, as scan sets it: there is no built-in ${MODEL_NAME} (podman logs "unset environment variable" and the model is never asked)

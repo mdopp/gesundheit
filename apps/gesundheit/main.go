@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -25,6 +26,24 @@ func env(name, def string) string {
 	return def
 }
 
+// eigeneSeite is where this program's page is reached from a phone: the
+// value PUBLIC_URL, or, while a box has none yet, Paperless' public address
+// with its first label swapped for ours (both are routes of the same box).
+func eigeneSeite(public, paperless string) string {
+	if public != "" {
+		return strings.TrimRight(public, "/")
+	}
+	u, err := url.Parse(paperless)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	i := strings.IndexByte(u.Host, '.')
+	if i <= 0 {
+		return "" // a bare name has no domain to share
+	}
+	return u.Scheme + "://gesundheit" + u.Host[i:]
+}
+
 func main() {
 	d := &Dienst{
 		Paperless:   &Paperless{URL: env("PAPERLESS_URL", "http://host.containers.internal:8000"), Token: os.Getenv("PAPERLESS_TOKEN")},
@@ -38,6 +57,7 @@ func main() {
 		NotifyURL:   os.Getenv("NOTIFY_URL"),
 		NotifyToken: os.Getenv("NOTIFY_TOKEN"),
 		FrageUm:     env("FRAGE_UHRZEIT", "20:00"),
+		Seite:       eigeneSeite(os.Getenv("PUBLIC_URL"), os.Getenv("PAPERLESS_PUBLIC_URL")),
 	}
 	web := &Web{Dienst: d, Secret: os.Getenv("PROXY_SECRET"), Admins: env("ADMIN_GROUP", "admins")}
 
