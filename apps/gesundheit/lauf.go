@@ -72,7 +72,8 @@ func (d *Dienst) ladePersonen(ctx context.Context) []Person {
 			log.Printf("personen: %v", err)
 		}
 	}
-	dienste := map[string]bool{"admin": true, "dokumente": true, "haus": true, "gesundheit": true}
+	// solaris: the retired stack's Paperless account (laib ADR 0015), still on boxes that migrated
+	dienste := map[string]bool{"admin": true, "dokumente": true, "haus": true, "gesundheit": true, "solaris": true}
 	for k := range d.Dienste {
 		dienste[k] = true
 	}
@@ -185,7 +186,12 @@ func (d *Dienst) Fragen(ctx context.Context) int {
 		}
 		fragen, _ := d.Speicher.Fragen(p.Key)
 		if err := d.mitteilung(ctx, p.Login, frageText(fragen, d.Seite)); err != nil {
-			log.Printf("tagesfrage %s: %v", p.Login, err)
+			// one try a day: 2026-10-29 a person the Bote did not know (404) was asked every tick,
+			// 200 log lines in 15 minutes and the Bote hammered; tomorrow is soon enough
+			log.Printf("tagesfrage %s: %v (heute kein weiterer Versuch)", p.Login, err)
+			if err := d.Speicher.GefragtMerken(heute, p.Key); err != nil {
+				log.Printf("tagesfrage: %v", err)
+			}
 			continue
 		}
 		if err := d.Speicher.GefragtMerken(heute, p.Key); err != nil {

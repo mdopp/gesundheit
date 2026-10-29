@@ -684,6 +684,44 @@ func TestLoeschenRemovesThePersonsFolderOnly(t *testing.T) {
 
 // --- the daily question
 
+// A person the Bote does not know (404) is tried once a day, not every
+// tick (2026-10-29: 200 log lines in 15 minutes for a retired account);
+// the others still get their question.
+func TestAnUnknownRecipientIsTriedOnceADay(t *testing.T) {
+	d, _, _ := aufbau(t)
+	var mu sync.Mutex
+	tries := map[string]int{}
+	notify := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]string
+		json.NewDecoder(r.Body).Decode(&m)
+		mu.Lock()
+		tries[m["an"]]++
+		mu.Unlock()
+		if m["an"] == "ben" {
+			http.Error(w, "unbekannt", 404)
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer notify.Close()
+	d.NotifyURL, d.NotifyToken, d.FrageUm = notify.URL, "n0tify", "20:00"
+	jetzt := time.Date(2026, 10, 29, 20, 0, 5, 0, time.UTC)
+	d.Jetzt = func() time.Time { return jetzt }
+	n := d.Fragen(context.Background())
+	for i := 0; i < 5; i++ {
+		jetzt = jetzt.Add(5 * time.Second)
+		n += d.Fragen(context.Background())
+	}
+	if n != 1 || tries["anna"] != 1 || tries["ben"] != 1 {
+		t.Fatalf("sent %d, tries %v: ben once a day, anna once", n, tries)
+	}
+	jetzt = time.Date(2026, 10, 30, 20, 0, 5, 0, time.UTC)
+	d.Fragen(context.Background())
+	if tries["ben"] != 2 {
+		t.Fatalf("next day ben tried again: %v", tries)
+	}
+}
+
 func TestTheDailyQuestionOncePerPersonAndDay(t *testing.T) {
 	d, _, _ := aufbau(t)
 	var mu sync.Mutex
