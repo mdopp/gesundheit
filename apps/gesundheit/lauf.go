@@ -41,7 +41,9 @@ type Dienst struct {
 	// the daily question (laib ADR 0022 §3): bote-notify's /mitteilung with its bearer, from
 	// FrageUm (HH:MM, local time) on; without URL or token nobody is asked
 	NotifyURL, NotifyToken, FrageUm string
-	HTTP                            *http.Client
+	// Seite is the page's public address, the daily question's link; "" sends the scales alone
+	Seite string
+	HTTP  *http.Client
 
 	mu       sync.Mutex
 	personen []Person
@@ -182,7 +184,7 @@ func (d *Dienst) Fragen(ctx context.Context) int {
 			continue
 		}
 		fragen, _ := d.Speicher.Fragen(p.Key)
-		if err := d.mitteilung(ctx, p.Login, frageText(fragen)); err != nil {
+		if err := d.mitteilung(ctx, p.Login, frageText(fragen, d.Seite)); err != nil {
 			log.Printf("tagesfrage %s: %v", p.Login, err)
 			continue
 		}
@@ -194,14 +196,23 @@ func (d *Dienst) Fragen(ctx context.Context) int {
 	return n
 }
 
-// frageText is the question as the Bote delivers it: the scales in one
-// line, so the answer can be one line too.
-func frageText(fragen []Frage) string {
+// frageText is the question as the Bote delivers it: first the link to
+// the page's form (the owner, 2026-10-29: „Sollten das nicht eher ein
+// Verweis auf ein Formular sein?“), then, for whoever would rather answer
+// in the chat, the scales in one line so the answer can be one line too.
+// Without a public address only the line of scales goes.
+func frageText(fragen []Frage, seite string) string {
 	var teile []string
 	for _, f := range fragen {
-		teile = append(teile, fmt.Sprintf("%s (%d–%d)", strings.TrimSuffix(strings.TrimSuffix(f.Text, " (0 = keine)"), "?"), f.Min, f.Max))
+		text := strings.TrimSuffix(f.Text, "?")
+		text = strings.TrimSuffix(strings.TrimSuffix(text, " (0 = keine)"), "?")
+		teile = append(teile, fmt.Sprintf("%s (%d–%d)", text, f.Min, f.Max))
 	}
-	return "Kurz zu deinem Tag: " + strings.Join(teile, " · ") + ". Antworte mir mit den Zahlen in dieser Reihenfolge und, wenn du magst, einem Satz – ich trage es in deine Gesundheit ein."
+	zahlen := strings.Join(teile, " · ")
+	if seite == "" {
+		return "Kurz zu deinem Tag: " + zahlen + ". Antworte mir mit den Zahlen in dieser Reihenfolge und, wenn du magst, einem Satz – ich trage es in deine Gesundheit ein."
+	}
+	return "Wie war dein Tag? " + strings.TrimRight(seite, "/") + "/ – vier kurze Fragen, unter einer Minute. Oder antworte mir hier mit den Zahlen: " + zahlen + ", in dieser Reihenfolge."
 }
 
 // mitteilung posts one message for one person to bote-notify.
