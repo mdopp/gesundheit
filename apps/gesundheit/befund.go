@@ -85,7 +85,11 @@ type Messwert struct {
 	Datum    string    `json:"datum"` // JJJJ-MM-TT
 	Dokument int       `json:"dokument"`
 	Gruppe   string    `json:"gruppe,omitempty"`
+	Quelle   string    `json:"quelle,omitempty"`  // "bild": read from the page's image, the OCR text was too weak (#5)
+	Pruefen  bool      `json:"pruefen,omitempty"` // the OCR text names another number for it than the image
 	At       time.Time `json:"at"`
+
+	rohName, rohWert string // as the model wrote them, for the comparison with the OCR text
 }
 
 // Ereignis is a diagnosis, a medication, a recommendation, an appointment
@@ -108,6 +112,25 @@ type Gelesen struct {
 	Werte      []Messwert `json:"werte"`
 	Ereignisse []Ereignis `json:"ereignisse"`
 	Weg        []string   `json:"weg,omitempty"` // what was not taken, and why (German)
+	// #5: a page whose OCR text was weak is read from its image; the transcript is
+	// what the evidence rule checked against, Abweichungen where the OCR text differs
+	Quelle       string   `json:"quelle,omitempty"`
+	Abschrift    string   `json:"abschrift,omitempty"`
+	Abweichungen []string `json:"abweichungen,omitempty"`
+}
+
+// ausDemBild marks what one document yielded from its image, and puts
+// `prüfen` on every value whose number the OCR text gives otherwise.
+func (g *Gelesen) ausDemBild(abschrift, ocr string) {
+	g.Quelle, g.Abschrift = "bild", abschrift
+	for i := range g.Werte {
+		m := &g.Werte[i]
+		m.Quelle = "bild"
+		if anders := abweichung([]string{m.rohName, m.Name}, m.rohWert, ocr); anders != "" {
+			m.Pruefen = true
+			g.Abweichungen = append(g.Abweichungen, fmt.Sprintf("%s steht im Bild als %s, im Text der Seite als %s", m.Name, m.rohWert, anders))
+		}
+	}
 }
 
 var leerzeichen = regexp.MustCompile(`\s+`)
@@ -237,7 +260,7 @@ func auswerten(doc int, titel, text, erstellt string, a Antwort, jetzt time.Time
 			g.Weg = append(g.Weg, fmt.Sprintf("%s (%s steht nicht im Beleg)", name, w.Wert))
 			continue
 		}
-		m := Messwert{Name: name, Wert: v, Einheit: strings.TrimSpace(w.Einheit), Datum: datum, Dokument: doc, At: jetzt, Gruppe: "Weitere", Neu: true}
+		m := Messwert{Name: name, Wert: v, Einheit: strings.TrimSpace(w.Einheit), Datum: datum, Dokument: doc, At: jetzt, Gruppe: "Weitere", Neu: true, rohName: name, rohWert: strings.TrimSpace(w.Wert)}
 		if an := finde(name); an != nil {
 			m.Name, m.Gruppe, m.Neu = an.Name, an.Gruppe, false
 			if !strings.EqualFold(name, an.Name) {

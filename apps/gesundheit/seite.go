@@ -59,6 +59,7 @@ func (w *Web) Handler() http.Handler {
 	mux.HandleFunc("POST /fragen", w.fragen)
 	mux.HandleFunc("POST /zuordnen", w.zuordnen)
 	mux.HandleFunc("GET /export.csv", w.export)
+	mux.HandleFunc("GET /abschrift", w.abschrift)
 	mux.HandleFunc("POST /loeschen", w.loeschen)
 	return mux
 }
@@ -155,7 +156,7 @@ func (w *Web) start(rw http.ResponseWriter, r *http.Request) {
 		b.WriteString(`<p>Noch keine Werte. Sobald ein Laborblatt oder ein Befund in Paperless liegt (Scanner „Nur für mich“ oder Mail an das Dokumenten-Postfach mit Betreff „Arzt: …“), lese ich die Werte und zeichne sie hier ein.</p>`)
 	} else {
 		b.WriteString(zuletzt(v.Werte))
-		b.WriteString(verlaufHTML(v, tage, w.Dienst.Public))
+		b.WriteString(verlaufHTML(v, tage, w.Dienst.Public, p.Key))
 	}
 	b.WriteString(`</section>`)
 	// days
@@ -215,7 +216,7 @@ func zuletzt(werte []Messwert) string {
 
 // verlaufHTML draws one row per value: name, sparkline with the reference
 // band, the last value; then the events.
-func verlaufHTML(v Verlauf, tage []Tagesnotiz, public string) string {
+func verlaufHTML(v Verlauf, tage []Tagesnotiz, public, person string) string {
 	byName := map[string][]Messwert{}
 	for _, m := range v.Werte {
 		byName[m.Name] = append(byName[m.Name], m)
@@ -245,6 +246,13 @@ func verlaufHTML(v Verlauf, tage []Tagesnotiz, public string) string {
 		neu := ""
 		if last.Neu {
 			neu = ` <span class=neu title="Dieser Name steht nicht im Wörterbuch; er wird so geführt, wie der Befund ihn schreibt.">neu</span>`
+		}
+		if last.Quelle == "bild" {
+			// #5: the transcript the value was read from, behind the value
+			neu += fmt.Sprintf(` <a class=neu href="/abschrift?dokument=%d&amp;person=%s" title="Der Text der Seite war zu schwach; der Wert ist aus dem Bild abgeschrieben.">aus dem Bild gelesen</a>`, last.Dokument, html.EscapeString(person))
+		}
+		if last.Pruefen {
+			neu += ` <span class=neu title="Der Text der Seite nennt eine andere Zahl als das Bild. Bitte im Dokument nachsehen.">prüfen</span>`
 		}
 		fmt.Fprintf(&b, `<tr><th>%s%s</th><td>%s</td><td class=wert>%s <span class=k>%s</span> %s</td></tr>`,
 			html.EscapeString(n), neu, sparkline(ms, min, max, public), zahlText(last.Wert), html.EscapeString(last.Einheit), lage(last))
@@ -362,6 +370,12 @@ func sparkline(ms []Messwert, min, max time.Time, public string) string {
 		title := fmt.Sprintf("%s: %s %s", datumText(m.Datum), zahlText(m.Wert), m.Einheit)
 		if m.RefMin != nil || m.RefMax != nil {
 			title += " (Referenz " + refText(m.RefMin, m.RefMax) + ")"
+		}
+		if m.Quelle == "bild" {
+			title += " · aus dem Bild gelesen"
+		}
+		if m.Pruefen {
+			title += " · prüfen"
 		}
 		href := dokURL(m.Dokument, public)
 		if href != "" {
@@ -527,6 +541,33 @@ func (w *Web) zuordnen(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, "/?person="+key+"&m="+urlQ("Befund zugeordnet; seine Werte sind jetzt im Verlauf."), http.StatusSeeOther)
 }
 
+// abschrift shows the transcript a document's values were read from, when
+// its page's text was too weak (#5): only to whom the document belongs.
+func (w *Web) abschrift(rw http.ResponseWriter, r *http.Request) {
+	p, _, _ := w.wer(rw, r)
+	if p == nil {
+		return
+	}
+	doc, _ := strconv.Atoi(r.FormValue("dokument"))
+	rec, err := w.Dienst.Speicher.Record()
+	var e *Eintrag
+	if err == nil {
+		e = rec.Gelesen[strconv.Itoa(doc)]
+	}
+	if e == nil || e.Person != p.Key || e.Gelesen == nil || e.Gelesen.Abschrift == "" {
+		seite(rw, http.StatusNotFound, "Keine Abschrift", `<p>Zu diesem Dokument gibt es in deinem Verlauf keine Abschrift.</p><p><a href="/">Zurück</a></p>`)
+		return
+	}
+	g := e.Gelesen
+	var b strings.Builder
+	fmt.Fprintf(&b, `<p class=k>Abschrift von „%s“ (%s), aus dem Bild gelesen: Der Text der Seite war zu schwach. Nur abgeschrieben, nicht gedeutet. %s</p>`, html.EscapeString(g.Titel), datumText(g.Datum), dokLink(g.Dokument, w.Dienst.Public))
+	if len(g.Abweichungen) > 0 {
+		b.WriteString(`<p>Bitte prüfen: ` + html.EscapeString(strings.Join(g.Abweichungen, "; ")) + `.</p>`)
+	}
+	b.WriteString(`<pre class=abschrift>` + html.EscapeString(g.Abschrift) + `</pre><p><a href="/?person=` + html.EscapeString(p.Key) + `">Zurück zum Verlauf</a></p>`)
+	seite(rw, http.StatusOK, "Abschrift", b.String())
+}
+
 func (w *Web) export(rw http.ResponseWriter, r *http.Request) {
 	p, _, _ := w.wer(rw, r)
 	if p == nil {
@@ -649,6 +690,7 @@ button{font:inherit;padding:.4rem .9rem;border:1px solid var(--akzent);border-ra
 table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.35rem .4rem;border-bottom:1px solid var(--line);vertical-align:middle}
 .werte th{width:30%;font-weight:500}.werte .gruppe th{color:var(--k);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;padding-top:1rem;border:0}.wert{white-space:nowrap}
 .spark{display:block;max-width:100%;height:44px}.spark .ref{fill:var(--ref)}.spark polyline{fill:none;stroke:var(--akzent);stroke-width:1.5}.spark .punkt{fill:var(--akzent)}.spark .punkt.ausser{fill:var(--ausser)}.befinden .punkt{fill:var(--ok)}
+.abschrift{white-space:pre-wrap;font-size:.85rem;border:1px solid var(--line);border-radius:6px;padding:.75rem;overflow-x:auto}
 .neu{font-size:.75rem;color:var(--k);border:1px solid var(--line);border-radius:4px;padding:0 .3rem}
 .ereignisse{padding-left:1rem}.ereignisse time{color:var(--k);font-size:.9rem;margin-right:.3rem}
 .offen{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0}

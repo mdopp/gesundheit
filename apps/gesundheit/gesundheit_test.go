@@ -27,6 +27,9 @@ type fakeDoc struct {
 	Tags    []int
 	Owner   *int
 	Notes   []string
+	NoteBy  []int  // the user of each note; 0 is the program's own (4)
+	File    []byte // the original, for the image pass (#5)
+	Mime    string
 }
 
 type fakePaperless struct {
@@ -37,6 +40,8 @@ type fakePaperless struct {
 	users []paperlessUser
 	perms map[int]any
 	srv   *httptest.Server
+	// keinLoeschen: the user lacks delete_note, as before laib#894's grant
+	keinLoeschen bool
 }
 
 func newFakePaperless() *fakePaperless {
@@ -111,8 +116,51 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
 		var b map[string]string
 		json.NewDecoder(r.Body).Decode(&b)
-		f.docs[id].Notes = append(f.docs[id].Notes, b["note"])
+		d := f.docs[id]
+		for len(d.NoteBy) < len(d.Notes) {
+			d.NoteBy = append(d.NoteBy, 4)
+		}
+		d.Notes, d.NoteBy = append(d.Notes, b["note"]), append(d.NoteBy, 4)
 		w.WriteHeader(201)
+	case strings.HasSuffix(p, "/notes/") && r.Method == "GET":
+		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
+		d := f.docs[id]
+		items := []any{}
+		for i, n := range d.Notes {
+			by := 4
+			if i < len(d.NoteBy) && d.NoteBy[i] != 0 {
+				by = d.NoteBy[i]
+			}
+			items = append(items, map[string]any{"id": i + 1, "note": n, "user": map[string]any{"id": by}})
+		}
+		json.NewEncoder(w).Encode(items)
+	case strings.HasSuffix(p, "/notes/") && r.Method == "DELETE":
+		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
+		d := f.docs[id]
+		if f.keinLoeschen {
+			http.Error(w, "Insufficient permissions", 403)
+			return
+		}
+		n, _ := strconv.Atoi(r.URL.Query().Get("id"))
+		if n < 1 || n > len(d.Notes) {
+			http.Error(w, "keine Notiz", 404)
+			return
+		}
+		for len(d.NoteBy) < len(d.Notes) {
+			d.NoteBy = append(d.NoteBy, 4)
+		}
+		d.Notes = append(d.Notes[:n-1:n-1], d.Notes[n:]...)
+		d.NoteBy = append(d.NoteBy[:n-1:n-1], d.NoteBy[n:]...)
+		json.NewEncoder(w).Encode([]any{})
+	case strings.HasSuffix(p, "/download/"):
+		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
+		d := f.docs[id]
+		if d == nil || d.File == nil || r.URL.Query().Get("original") != "true" {
+			http.Error(w, "keine Datei", 404)
+			return
+		}
+		w.Header().Set("Content-Type", d.Mime)
+		w.Write(d.File)
 	case strings.HasPrefix(p, "/api/documents/"):
 		id, _ := strconv.Atoi(strings.Trim(strings.TrimPrefix(p, "/api/documents/"), "/"))
 		d := f.docs[id]

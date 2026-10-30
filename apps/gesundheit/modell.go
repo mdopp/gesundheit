@@ -50,13 +50,20 @@ func (m *Modell) fragen(ctx context.Context, system, user string, maxTokens int)
 	if m.URL == "" {
 		return "", ErrModellWeg
 	}
-	body := map[string]any{
+	return m.senden(ctx, map[string]any{
 		"model":                m.Name,
 		"messages":             []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}},
 		"temperature":          0.1,
 		"max_tokens":           maxTokens,
 		"response_format":      map[string]string{"type": "json_object"},
 		"chat_template_kwargs": map[string]bool{"enable_thinking": false},
+	})
+}
+
+// senden posts one chat request as background work and answers the first choice's text.
+func (m *Modell) senden(ctx context.Context, body map[string]any) (string, error) {
+	if m.URL == "" {
+		return "", ErrModellWeg
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", m.URL+"/chat/completions", bytes.NewReader(b))

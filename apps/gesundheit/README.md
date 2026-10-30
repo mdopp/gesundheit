@@ -32,7 +32,24 @@ documents, this keeps what it read out of them, per person.
    own (a sheet over several examinations gives each value the day of its
    examination) is kept only when that date stands in the text;
    else it is listed in the note on the document and the document gets the
-   tag `prüfen`. Units are converted only where `woerterbuch.go` names the
+   tag `prüfen`. **A page whose text is weak is read from its image** (#5,
+   owner 2026-10-30): `guete` in `bild.go` weighs the OCR text (fewer than 12
+   tokens or 6 words, under 70 % words among the tokens with letters, or most
+   lines with a number carrying no word to name it). Such a document's text
+   never yields a value. Its original (the scanner's JPEG/PNG, or the page
+   pictures a scanner's PDF carries: JPEG, 8- or 1-bit Flate; at most 8 pages,
+   2048 px) goes to `IMAGE_MODEL` (`gemma-4-12b`) through the lease: one lease
+   for the run's weak documents (holder `gesundheit`, renewed while it reads,
+   given back before the household model reads the transcripts; held by
+   someone else, they wait for the next run). The image preset only
+   transcribes, as Markdown (headings, tables, each examination under its
+   date), never interprets; that transcript is the text the evidence rule
+   checks, its values are marked „aus dem Bild gelesen“, and a value whose
+   name the OCR text carries with another number gets `prüfen`. A page the
+   preset cannot read, or a file without a picture, yields no value and the
+   note says so. The note is one per document (`Gesundheit: …`, replaced on
+   every reading, a person's own notes stay) and carries the transcript;
+   the page links it behind the value (`/abschrift`). Units are converted only where `woerterbuch.go` names the
    exact factor; a name the dictionary does not know is kept as the report
    writes it and marked `neu`. Images are never interpreted: of an X-ray or
    MRT report only the written finding becomes an event.
@@ -68,6 +85,7 @@ documents, this keeps what it read out of them, per person.
 | `PROXY_SECRET`, `ADMIN_GROUP` (`admins`) | Caddy's `X-Gesundheit-Proxy`; the group that sees the children |
 | `PAPERLESS_URL`, `PAPERLESS_TOKEN`, `PAPERLESS_USER` (`gesundheit`), `PAPERLESS_PUBLIC_URL` | the API; the user's token (empty: no reading, the status says so); its own name; the address for links |
 | `MODEL_URL`, `MODEL_KEY`, `MODEL_NAME` | the lease's proxy, OpenAI-shaped `/chat/completions` |
+| `IMAGE_MODEL` (template: `gemma-4-12b`), `MODEL_LEASE` | the preset that reads a weak page's image, and the lease it is taken through (`POST/DELETE /api/model-lease` with `MODEL_KEY`; empty: derived from `MODEL_URL`); `IMAGE_MODEL` empty: weak pages wait, the status says so |
 | `BEFUND_ARTEN`, `KINDER` | what is a medical record; the people without a login |
 | `WEBHOOK_TOKEN`, `BOTE_TOKEN` | the hook's `X-Gesundheit-Token`; the MCP's bearer |
 | `NOTIFY_URL`, `NOTIFY_TOKEN`, `FRAGE_UHRZEIT` (`20:00`) | bote-notify's `/mitteilung` and its bearer: the daily question, once a day from that time for every login who has not noted the day (laib ADR 0022 §3); empty: nobody is asked |
@@ -80,7 +98,9 @@ documents, this keeps what it read out of them, per person.
 person's folder is theirs to export or delete.
 
 **Paperless' side** (laib#894, paperless' post-deploy): user `gesundheit`
-with view/change on documents, notes and tags; the workflow's second
+with view/change on documents, notes and tags, and `delete_note` (its one
+note is replaced, Paperless cannot edit a note; without it the old note
+stays, no second one is written, and the status says so — #5); the workflow's second
 webhook action; the types and tags of `BEFUND_ARTEN`.
 
-Tests: `go test ./...` — fakes for Paperless and the model, never a live box.
+Tests: `go test ./...` — fakes for Paperless, the model and the lease, never a live box.

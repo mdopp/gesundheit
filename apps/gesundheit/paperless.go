@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -177,9 +178,79 @@ func (p *Paperless) Lesen(ctx context.Context, id int) (Dokument, error) {
 	return d, err
 }
 
-// Notiz puts a note on the document.
-func (p *Paperless) Notiz(ctx context.Context, id int, text string) error {
+// notizAnfang starts every note this program writes: how it finds its own again.
+const notizAnfang = "Gesundheit:"
+
+// Notiz puts the program's note on the document: one note, replaced on
+// every reading, never a second one beside it (#5). Paperless cannot edit a
+// note, so the old one is deleted first — only one that starts with
+// notizAnfang and is the program's own (ich; 0: any user).
+func (p *Paperless) Notiz(ctx context.Context, id int, text string, ich int) error {
+	var alte []struct {
+		ID   int             `json:"id"`
+		Note string          `json:"note"`
+		User json.RawMessage `json:"user"`
+	}
+	if err := p.do(ctx, "GET", fmt.Sprintf("/api/documents/%d/notes/", id), nil, &alte); err != nil {
+		return err
+	}
+	for _, n := range alte {
+		if !strings.HasPrefix(strings.TrimSpace(n.Note), notizAnfang) || (ich > 0 && notizVon(n.User) != 0 && notizVon(n.User) != ich) {
+			continue
+		}
+		if err := p.do(ctx, "DELETE", fmt.Sprintf("/api/documents/%d/notes/?id=%d", id, n.ID), nil, nil); err != nil {
+			var f *Fehler
+			if errors.As(err, &f) && f.Code == http.StatusForbidden {
+				return ErrNotizRecht // never a second note beside the old one
+			}
+			return err
+		}
+	}
 	return p.do(ctx, "POST", fmt.Sprintf("/api/documents/%d/notes/", id), map[string]string{"note": text}, nil)
+}
+
+// ErrNotizRecht is Paperless refusing to delete the program's old note: its
+// user lacks delete_note (paperless' post-deploy grants it, laib#894).
+var ErrNotizRecht = errors.New("Paperless lässt Gesundheit seine alte Notiz nicht ersetzen (Recht delete_note fehlt)")
+
+// notizVon is a note's user: an id, or an object with one (newer API versions).
+func notizVon(raw json.RawMessage) int {
+	var id int
+	if json.Unmarshal(raw, &id) == nil {
+		return id
+	}
+	var u struct {
+		ID int `json:"id"`
+	}
+	json.Unmarshal(raw, &u)
+	return u.ID
+}
+
+// Original is the file as it came in (the scanner's PDF or photo), with its
+// type: the page images the image preset reads (#5). At most 128 MB.
+func (p *Paperless) Original(ctx context.Context, id int) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(p.URL, "/")+fmt.Sprintf("/api/documents/%d/download/?original=true", id), nil)
+	if err != nil {
+		return nil, "", &Fehler{Err: err}
+	}
+	req.Header.Set("Authorization", "Token "+p.Token)
+	c := p.HTTP
+	if c == nil {
+		c = &http.Client{Timeout: 5 * time.Minute}
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, "", &Fehler{Err: err}
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return nil, "", &Fehler{Code: resp.StatusCode}
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 128<<20))
+	if err != nil {
+		return nil, "", &Fehler{Err: err}
+	}
+	return data, resp.Header.Get("Content-Type"), nil
 }
 
 // Tag adds the tag named name to the document, making the tag when it is

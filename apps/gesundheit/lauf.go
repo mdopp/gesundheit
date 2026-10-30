@@ -30,6 +30,7 @@ const (
 type Dienst struct {
 	Paperless  *Paperless
 	Modell     *Modell
+	Bild       *Bildleser // the image preset through the lease, for pages whose text is weak (#5); nil: such pages wait
 	Speicher   *Speicher
 	Arten      []string        // BEFUND_ARTEN: document types or tags that are medical records
 	Kinder     string          // KINDER: the children's names
@@ -48,7 +49,10 @@ type Dienst struct {
 	mu       sync.Mutex
 	personen []Person
 	laeuft   bool
-	hooks    struct{ erster, letzter time.Time }
+	// transcripts read but not yet filed (the household model did not answer
+	// after the card went back): the next run uses them instead of the GPU again
+	abschriften map[int]Abschrift
+	hooks       struct{ erster, letzter time.Time }
 }
 
 // Personen are the household's people as last fetched from Paperless, plus
@@ -300,14 +304,44 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 	d.umgestellt(ctx, rec, docs, typen, tags)
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
 	ich := d.meineID(ctx)
-	for _, doc := range docs {
-		if _, done := rec.Gelesen[strconv.Itoa(doc.ID)]; done {
+	// fetch the unread ones and weigh their text: a weak page is read from its image (#5)
+	var stapel []*kandidat
+	geholt := 0
+	for _, meta := range docs {
+		if _, done := rec.Gelesen[strconv.Itoa(meta.ID)]; done {
 			continue
 		}
-		if l.Gelesen >= proLauf {
+		if len(stapel) >= proLauf || geholt >= 3*proLauf {
 			break
 		}
-		err := d.lesen(ctx, doc, personen, ich, &l)
+		geholt++
+		doc, err := d.Paperless.Lesen(ctx, meta.ID)
+		if err != nil {
+			l.Fehler = err.Error()
+			break
+		}
+		k := &kandidat{doc: doc, guete: guete(doc.Content)}
+		if k.guete.Schwach() && d.Bild == nil {
+			l.BildWartet++ // waits for IMAGE_MODEL; its weak text never yields a value
+			continue
+		}
+		stapel = append(stapel, k)
+	}
+	if err := d.bilderLesen(ctx, stapel, &l); err != nil {
+		var pf *Fehler
+		if errors.As(err, &pf) {
+			l.Fehler = err.Error()
+			return l
+		}
+		log.Printf("lauf: Bilder: %v, der nächste Lauf versucht es wieder", err)
+		l.BildGrund = err.Error()
+	}
+	for _, k := range stapel {
+		if k.guete.Schwach() && k.abschrift == nil {
+			l.BildWartet++ // the card was busy or away: next run
+			continue
+		}
+		err := d.lesen(ctx, k, personen, ich, &l)
 		if errors.Is(err, ErrModellWeg) {
 			l.ModellWeg = true
 			log.Printf("lauf: %v, der nächste Lauf fragt wieder", err)
@@ -319,7 +353,7 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 			break
 		}
 		if err != nil {
-			log.Printf("dokument %d: %v", doc.ID, err)
+			log.Printf("dokument %d: %v", k.doc.ID, err)
 		}
 	}
 	for _, e := range rec.Gelesen {
@@ -330,23 +364,112 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 	return l
 }
 
-// lesen reads one document and files what it yields.
-func (d *Dienst) lesen(ctx context.Context, meta Dokument, personen []Person, ich int, l *Lauf) error {
-	doc, err := d.Paperless.Lesen(ctx, meta.ID)
-	if err != nil {
-		return err
+// kandidat is one unread document of a run: its text, how readable that
+// is, and, for a weak one, what its image said.
+type kandidat struct {
+	doc       Dokument
+	guete     Guete
+	abschrift *Abschrift
+}
+
+// bilderLesen transcribes the images of the run's weak documents under one
+// lease: the image preset replaces the household model on the card, so the
+// images are read together and the card goes back before the household
+// model reads the transcripts. A busy card leaves them for the next run.
+func (d *Dienst) bilderLesen(ctx context.Context, stapel []*kandidat, l *Lauf) error {
+	var schwach []*kandidat
+	for _, k := range stapel {
+		if k.guete.Schwach() {
+			schwach = append(schwach, k)
+		}
 	}
-	id := strconv.Itoa(doc.ID)
-	if len(strings.Fields(doc.Content)) < 12 {
-		// no text yet (OCR still running) or none at all: not this run, asked again by the hour
+	if len(schwach) == 0 || d.Bild == nil {
 		return nil
 	}
-	a, err := d.Modell.Frage(ctx, doc.Content)
+	// the files first: a document without a readable image needs no card
+	seiten := map[*kandidat][][]byte{}
+	for _, k := range schwach {
+		d.mu.Lock()
+		a, schon := d.abschriften[k.doc.ID]
+		d.mu.Unlock()
+		if schon {
+			k.abschrift = &a
+			continue
+		}
+		data, mime, err := d.Paperless.Original(ctx, k.doc.ID)
+		if err != nil {
+			return err
+		}
+		s, err := seitenBilder(data, mime)
+		if err != nil {
+			k.abschrift = &Abschrift{Grund: err.Error()}
+			continue
+		}
+		seiten[k] = s
+	}
+	if len(seiten) == 0 {
+		return nil
+	}
+	start := time.Now()
+	if err := d.Bild.Lease.Nehmen(ctx, d.Bild.Name); err != nil {
+		return err
+	}
+	defer d.Bild.Lease.Zurueck(context.WithoutCancel(ctx))
+	for _, k := range schwach {
+		s, ok := seiten[k]
+		if !ok {
+			continue
+		}
+		t0 := time.Now()
+		a, err := d.Bild.abschreiben(ctx, s)
+		if err != nil {
+			return err
+		}
+		k.abschrift = &a
+		d.mu.Lock()
+		if d.abschriften == nil {
+			d.abschriften = map[int]Abschrift{}
+		}
+		d.abschriften[k.doc.ID] = a
+		d.mu.Unlock()
+		l.Bild++
+		log.Printf("dokument %d: %d Seiten aus dem Bild gelesen in %s (%s)", k.doc.ID, len(s), time.Since(t0).Round(time.Second), k.guete)
+	}
+	l.BildSekunden += int(time.Since(start).Seconds())
+	return nil
+}
+
+// lesen reads one document and files what it yields: its text, or, when
+// that is weak, the transcript of its image.
+func (d *Dienst) lesen(ctx context.Context, k *kandidat, personen []Person, ich int, l *Lauf) error {
+	doc := k.doc
+	id := strconv.Itoa(doc.ID)
+	if k.guete.Schwach() && !k.abschrift.lesbar() {
+		// #5: no invented numbers. The text is no ground and the image said nothing.
+		l.Gelesen++
+		l.Pruefen++
+		grund := k.abschrift.Grund
+		if err := d.Speicher.Merken(id, &Eintrag{At: d.now(), Fehler: "nicht lesbar: " + grund}); err != nil {
+			return err
+		}
+		note := fmt.Sprintf("%s Keine Werte übernommen. Der Text dieser Seiten ist zu schwach zum Lesen (%s), und aus dem Bild: %s. Bitte selbst ansehen; Zahlen, die hier nicht sicher stehen, trage ich nicht ein.", notizAnfang, k.guete, grund)
+		d.notiz(ctx, doc.ID, note, ich, l)
+		d.taggen(ctx, &doc, tagPruefen, tagGelesen)
+		return nil
+	}
+	text := doc.Content
+	if k.abschrift.lesbar() {
+		text = k.abschrift.Text
+	}
+	a, err := d.Modell.Frage(ctx, text)
 	if err != nil {
 		return err
 	}
 	l.Gelesen++
-	g := auswerten(doc.ID, doc.Title, doc.Content, doc.Created, a, d.now())
+	g := auswerten(doc.ID, doc.Title, text, doc.Created, a, d.now())
+	if k.abschrift.lesbar() {
+		g.ausDemBild(k.abschrift.Text, doc.Content)
+	}
 	l.Werte += len(g.Werte)
 	e := &Eintrag{At: d.now(), Gelesen: &g}
 	if p := wessen(g.Patient, personen); p != nil {
@@ -364,31 +487,61 @@ func (d *Dienst) lesen(ctx context.Context, meta Dokument, personen []Person, ic
 	if err := d.Speicher.Merken(id, e); err != nil {
 		return err
 	}
-	// the note and the tags: what was read, for whom, what was not taken
-	var note []string
-	if e.Person != "" {
-		note = append(note, fmt.Sprintf("Gesundheit: %d Werte und %d Ereignisse für %s in den Verlauf übernommen.", len(g.Werte), len(g.Ereignisse), finden(e.Person, personen).Anzeige))
-	} else if g.Patient != "" {
-		note = append(note, fmt.Sprintf("Gesundheit: %d Werte gelesen, aber „%s“ ist niemand aus dem Haushalt. Bitte unter Gesundheit zuordnen.", len(g.Werte), g.Patient))
-	} else {
-		note = append(note, fmt.Sprintf("Gesundheit: %d Werte gelesen, aber kein Patient im Text. Bitte unter Gesundheit zuordnen.", len(g.Werte)))
+	d.mu.Lock()
+	delete(d.abschriften, doc.ID)
+	d.mu.Unlock()
+	d.notiz(ctx, doc.ID, notizText(g, e.Person, personen, k.guete), ich, l)
+	tags := []string{tagGelesen}
+	if e.Person == "" || len(g.Weg) > 0 || len(g.Abweichungen) > 0 {
+		l.Pruefen++
+		tags = append([]string{tagPruefen}, tags...)
+	}
+	d.taggen(ctx, &doc, tags...)
+	return nil
+}
+
+// notizText is the document's one note: what was read, for whom, what was
+// not taken, and for a page read from its image the transcript in Markdown.
+func notizText(g Gelesen, person string, personen []Person, q Guete) string {
+	var b strings.Builder
+	switch {
+	case person != "":
+		fmt.Fprintf(&b, "%s %d Werte und %d Ereignisse für %s in den Verlauf übernommen.", notizAnfang, len(g.Werte), len(g.Ereignisse), finden(person, personen).Anzeige)
+	case g.Patient != "":
+		fmt.Fprintf(&b, "%s %d Werte gelesen, aber „%s“ ist niemand aus dem Haushalt. Bitte unter Gesundheit zuordnen.", notizAnfang, len(g.Werte), g.Patient)
+	default:
+		fmt.Fprintf(&b, "%s %d Werte gelesen, aber kein Patient im Text. Bitte unter Gesundheit zuordnen.", notizAnfang, len(g.Werte))
+	}
+	if g.Quelle == "bild" {
+		fmt.Fprintf(&b, " Der Text der Seiten war zu schwach (%s); die Werte sind aus dem Bild gelesen.", q)
+	}
+	if len(g.Abweichungen) > 0 {
+		b.WriteString("\n\nBitte prüfen: " + strings.Join(g.Abweichungen, "; ") + ".")
 	}
 	if len(g.Weg) > 0 {
-		note = append(note, "Nicht übernommen: "+strings.Join(g.Weg, "; ")+".")
+		b.WriteString("\n\nNicht übernommen: " + strings.Join(g.Weg, "; ") + ".")
 	}
-	if err := d.Paperless.Notiz(ctx, doc.ID, strings.Join(note, " ")); err != nil {
-		log.Printf("dokument %d: notiz: %v", doc.ID, err)
+	if g.Abschrift != "" {
+		b.WriteString("\n\n---\n\n**Abschrift aus dem Bild** (nur abgeschrieben, nicht gedeutet):\n\n" + g.Abschrift)
 	}
-	if e.Person == "" || len(g.Weg) > 0 {
-		l.Pruefen++
-		if err := d.Paperless.Tag(ctx, &doc, tagPruefen); err != nil {
+	return b.String()
+}
+
+func (d *Dienst) notiz(ctx context.Context, doc int, text string, ich int, l *Lauf) {
+	if err := d.Paperless.Notiz(ctx, doc, text, ich); err != nil {
+		log.Printf("dokument %d: notiz: %v", doc, err)
+		if errors.Is(err, ErrNotizRecht) {
+			l.NotizRecht = true
+		}
+	}
+}
+
+func (d *Dienst) taggen(ctx context.Context, doc *Dokument, namen ...string) {
+	for _, n := range namen {
+		if err := d.Paperless.Tag(ctx, doc, n); err != nil {
 			log.Printf("dokument %d: tag: %v", doc.ID, err)
 		}
 	}
-	if err := d.Paperless.Tag(ctx, &doc, tagGelesen); err != nil {
-		log.Printf("dokument %d: tag: %v", doc.ID, err)
-	}
-	return nil
 }
 
 // Zuordnen gives a document read without a match to a person (the page's
@@ -461,6 +614,22 @@ func (d *Dienst) Status() {
 		if l.Offen > 0 {
 			detail += fmt.Sprintf(", %d warten auf eine Zuordnung", l.Offen)
 			findings = append(findings, map[string]string{"severity": "gelb", "detail": fmt.Sprintf("%d Befunde sind niemandem zugeordnet", l.Offen), "fix": "Unter Gesundheit → „Für wen?“ zuordnen"})
+		}
+		if l.Bild > 0 {
+			detail += fmt.Sprintf(", %d aus dem Bild gelesen (%d s Grafikkarte)", l.Bild, l.BildSekunden)
+		}
+		if l.BildWartet > 0 {
+			warum := "die Grafikkarte war vergeben, der nächste Lauf liest sie"
+			if d.Bild == nil {
+				warum = "IMAGE_MODEL ist nicht gesetzt"
+				findings = append(findings, map[string]string{"severity": "gelb", "detail": fmt.Sprintf("%d Befunde haben zu schwachen Text und warten auf das Lesen ihres Bildes", l.BildWartet), "fix": "IMAGE_MODEL im Template gesundheit setzen (gemma-4-12b)"})
+			} else if l.BildGrund != "" {
+				warum = l.BildGrund
+			}
+			detail += fmt.Sprintf(", %d warten auf das Bild (%s)", l.BildWartet, warum)
+		}
+		if l.NotizRecht {
+			findings = append(findings, map[string]string{"severity": "gelb", "detail": ErrNotizRecht.Error() + "; die neue Notiz fehlt deshalb an diesen Dokumenten", "fix": "laib template update paperless"})
 		}
 		if l.ModellWeg {
 			detail += "; das Modell antwortete nicht, der nächste Lauf fragt wieder"
