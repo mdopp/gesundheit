@@ -18,7 +18,17 @@ import (
 )
 
 // proLauf caps the documents read in one run: the household model is shared.
-const proLauf = 10
+var proLauf = 10
+
+// leserVersion is the reader's version, kept on each record (#10). Raising
+// it reads every record again, a few a run, newest documents first, and
+// replaces what the old reader yielded. 2: the predicted values a sheet
+// prints, units and near names that say „prüfen“, the image pass (#5) for
+// weak pages — the first run's records (2026-10-29) predate all three.
+const leserVersion = 2
+
+// proLaufErklaeren caps the value names the household model explains in one run.
+const proLaufErklaeren = 5
 
 const (
 	tagPruefen = "prüfen"
@@ -222,7 +232,7 @@ func frageText(fragen []Frage, seite string) string {
 	if seite == "" {
 		return "Kurz zu deinem Tag: " + zahlen + ". Antworte mir mit den Zahlen in dieser Reihenfolge und, wenn du magst, einem Satz – ich trage es in deine Gesundheit ein."
 	}
-	return "Wie war dein Tag? " + strings.TrimRight(seite, "/") + "/ – vier kurze Fragen, unter einer Minute. Oder antworte mir hier mit den Zahlen: " + zahlen + ", in dieser Reihenfolge."
+	return "Wie war dein Tag? " + strings.TrimRight(seite, "/") + "/befinden – vier kurze Fragen, unter einer Minute. Oder antworte mir hier mit den Zahlen: " + zahlen + ", in dieser Reihenfolge."
 }
 
 // mitteilung posts one message for one person to bote-notify.
@@ -251,7 +261,7 @@ func (d *Dienst) mitteilung(ctx context.Context, an, text string) error {
 
 // Lauf reads the medical documents not read yet, at most proLauf, oldest
 // first; a model or Paperless away ends the run and the next asks again.
-func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
+func (d *Dienst) Lauf(ctx context.Context, anlass string) (l Lauf) {
 	d.mu.Lock()
 	if d.laeuft {
 		d.mu.Unlock()
@@ -261,8 +271,11 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 	d.mu.Unlock()
 	defer func() { d.mu.Lock(); d.laeuft = false; d.mu.Unlock() }()
 
-	l := Lauf{Am: d.now(), Anlass: anlass}
+	l = Lauf{Am: d.now(), Anlass: anlass}
+	var docs []Dokument
 	defer func() {
+		// l is the named result: the count reaches the caller as well as the record
+		d.neuZuLesen(docs, &l)
 		if err := d.Speicher.LaufMerken(l); err != nil {
 			log.Printf("lauf: %v", err)
 		}
@@ -296,21 +309,30 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 		l.Fehler = err.Error()
 		return l
 	}
-	docs, err := d.Paperless.Befunde(ctx, typen, tags)
+	befunde, err := d.Paperless.Befunde(ctx, typen, tags)
 	if err != nil {
 		l.Fehler = err.Error()
 		return l
 	}
-	d.umgestellt(ctx, rec, docs, typen, tags)
-	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
+	d.umgestellt(ctx, rec, befunde, typen, tags)
+	sort.Slice(befunde, func(i, j int) bool { return befunde[i].ID < befunde[j].ID })
+	docs = befunde
 	ich := d.meineID(ctx)
-	// fetch the unread ones and weigh their text: a weak page is read from its image (#5)
+	// the unread ones first, then those an older reader read (#10), each oldest first
+	var neu, alt []Dokument
+	for _, meta := range docs {
+		e, done := rec.Gelesen[strconv.Itoa(meta.ID)]
+		switch {
+		case !done:
+			neu = append(neu, meta)
+		case e.Leser < leserVersion:
+			alt = append(alt, meta)
+		}
+	}
+	// fetch them and weigh their text: a weak page is read from its image (#5)
 	var stapel []*kandidat
 	geholt := 0
-	for _, meta := range docs {
-		if _, done := rec.Gelesen[strconv.Itoa(meta.ID)]; done {
-			continue
-		}
+	for _, meta := range append(neu, alt...) {
 		if len(stapel) >= proLauf || geholt >= 3*proLauf {
 			break
 		}
@@ -320,7 +342,7 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 			l.Fehler = err.Error()
 			break
 		}
-		k := &kandidat{doc: doc, guete: guete(doc.Content)}
+		k := &kandidat{doc: doc, guete: guete(doc.Content), vorher: rec.Gelesen[strconv.Itoa(meta.ID)]}
 		if k.guete.Schwach() && d.Bild == nil {
 			l.BildWartet++ // waits for IMAGE_MODEL; its weak text never yields a value
 			continue
@@ -361,7 +383,38 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 			l.Offen++
 		}
 	}
+	if !l.ModellWeg && l.Fehler == "" {
+		l.Erklaert = d.erklaeren(ctx, proLaufErklaeren)
+	}
 	return l
+}
+
+// neuZuLesen counts the records of Paperless' current medical documents an
+// older reader read: what the page shows as „noch N Befunde neu zu lesen“.
+// A run that ended before it listed the documents keeps the last count.
+func (d *Dienst) neuZuLesen(docs []Dokument, l *Lauf) {
+	rec, err := d.Speicher.Record()
+	if err != nil {
+		return
+	}
+	if docs == nil {
+		if rec.Lauf != nil {
+			l.NeuZuLesen, l.NeuZuLesenPro = rec.Lauf.NeuZuLesen, rec.Lauf.NeuZuLesenPro
+		}
+		return
+	}
+	l.NeuZuLesen, l.NeuZuLesenPro = 0, nil
+	for _, meta := range docs {
+		e := rec.Gelesen[strconv.Itoa(meta.ID)]
+		if e == nil || e.Leser >= leserVersion {
+			continue
+		}
+		if l.NeuZuLesenPro == nil {
+			l.NeuZuLesenPro = map[string]int{}
+		}
+		l.NeuZuLesen++
+		l.NeuZuLesenPro[e.Person]++
+	}
 }
 
 // kandidat is one unread document of a run: its text, how readable that
@@ -370,6 +423,7 @@ type kandidat struct {
 	doc       Dokument
 	guete     Guete
 	abschrift *Abschrift
+	vorher    *Eintrag // what an older reader yielded (#10), nil for a new document
 }
 
 // bilderLesen transcribes the images of the run's weak documents under one
@@ -449,7 +503,15 @@ func (d *Dienst) lesen(ctx context.Context, k *kandidat, personen []Person, ich 
 		l.Gelesen++
 		l.Pruefen++
 		grund := k.abschrift.Grund
-		if err := d.Speicher.Merken(id, &Eintrag{At: d.now(), Fehler: "nicht lesbar: " + grund}); err != nil {
+		e := &Eintrag{At: d.now(), Fehler: "nicht lesbar: " + grund, Leser: leserVersion}
+		if v := k.vorher; v != nil && v.Person != "" {
+			// what an older reader took from this weak text goes: it was no ground (#5, #10)
+			if err := d.Speicher.Austragen(v.Person, doc.ID); err != nil {
+				return err
+			}
+			e.Person = v.Person
+		}
+		if err := d.Speicher.Merken(id, e); err != nil {
 			return err
 		}
 		note := fmt.Sprintf("%s Keine Werte übernommen. Der Text dieser Seiten ist zu schwach zum Lesen (%s), und aus dem Bild: %s. Bitte selbst ansehen; Zahlen, die hier nicht sicher stehen, trage ich nicht ein.", notizAnfang, k.guete, grund)
@@ -471,8 +533,15 @@ func (d *Dienst) lesen(ctx context.Context, k *kandidat, personen []Person, ich 
 		g.ausDemBild(k.abschrift.Text, doc.Content)
 	}
 	l.Werte += len(g.Werte)
-	e := &Eintrag{At: d.now(), Gelesen: &g}
-	if p := wessen(g.Patient, personen); p != nil {
+	e := &Eintrag{At: d.now(), Gelesen: &g, Leser: leserVersion}
+	if v := k.vorher; v != nil && v.Person != "" {
+		// read again (#10): it stays whose it was, the owner's assignment included;
+		// its new values replace the old ones
+		e.Person = v.Person
+		if err := d.Speicher.Eintragen(v.Person, g); err != nil {
+			return err
+		}
+	} else if p := wessen(g.Patient, personen); p != nil {
 		e.Person = p.Key
 		if err := d.Speicher.Eintragen(p.Key, g); err != nil {
 			return err
@@ -506,7 +575,11 @@ func notizText(g Gelesen, person string, personen []Person, q Guete) string {
 	var b strings.Builder
 	switch {
 	case person != "":
-		fmt.Fprintf(&b, "%s %d Werte und %d Ereignisse für %s in den Verlauf übernommen.", notizAnfang, len(g.Werte), len(g.Ereignisse), finden(person, personen).Anzeige)
+		wer := person
+		if p := finden(person, personen); p != nil {
+			wer = p.Anzeige
+		}
+		fmt.Fprintf(&b, "%s %d Werte und %d Ereignisse für %s in den Verlauf übernommen.", notizAnfang, len(g.Werte), len(g.Ereignisse), wer)
 	case g.Patient != "":
 		fmt.Fprintf(&b, "%s %d Werte gelesen, aber „%s“ ist niemand aus dem Haushalt. Bitte unter Gesundheit zuordnen.", notizAnfang, len(g.Werte), g.Patient)
 	default:
@@ -630,6 +703,9 @@ func (d *Dienst) Status() {
 		}
 		if l.NotizRecht {
 			findings = append(findings, map[string]string{"severity": "gelb", "detail": ErrNotizRecht.Error() + "; die neue Notiz fehlt deshalb an diesen Dokumenten", "fix": "laib template update paperless"})
+		}
+		if l.NeuZuLesen > 0 {
+			detail += fmt.Sprintf(", noch %d Befunde mit dem neuen Leser neu zu lesen", l.NeuZuLesen)
 		}
 		if l.ModellWeg {
 			detail += "; das Modell antwortete nicht, der nächste Lauf fragt wieder"

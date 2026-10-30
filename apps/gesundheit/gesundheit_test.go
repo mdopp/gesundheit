@@ -348,7 +348,7 @@ func TestAuswertenTakesOnlyWhatTheTextBacks(t *testing.T) {
 }
 
 func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
-	a := Antwort{Werte: []AntwortWert{{"CRP", "21", "mg/l", "", "CRP 2,1 mg/l", ""}}}
+	a := Antwort{Werte: []AntwortWert{{Name: "CRP", Wert: "21", Einheit: "mg/l", Beleg: "CRP 2,1 mg/l"}}}
 	g := auswerten(1, "x", "CRP 2,1 mg/l und mehr Text", "", a, time.Now())
 	if len(g.Werte) != 0 || len(g.Weg) != 1 {
 		t.Fatalf("%+v %v", g.Werte, g.Weg)
@@ -358,18 +358,18 @@ func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
 func TestAuswertenConvertsOnlyKnownUnits(t *testing.T) {
 	text := "Glukose 5,5 mmol/l (3,9 - 5,6)  Natrium 140 mmol/l"
 	a := Antwort{Werte: []AntwortWert{
-		{"Glukose", "5,5", "mmol/l", "3,9 - 5,6", "Glukose 5,5 mmol/l (3,9 - 5,6)", ""},
-		{"Natrium", "140", "mmol/l", "", "Natrium 140 mmol/l", ""},
-		{"Lipase", "40", "U/l", "", "Lipase 40 U/l", ""}}}
-	g := auswerten(1, "x", text+" Lipase 40 U/l", "2026-01-01", a, time.Now())
+		{Name: "Glukose", Wert: "5,5", Einheit: "mmol/l", Ref: "3,9 - 5,6", Beleg: "Glukose 5,5 mmol/l (3,9 - 5,6)"},
+		{Name: "Natrium", Wert: "140", Einheit: "mmol/l", Beleg: "Natrium 140 mmol/l"},
+		{Name: "Amylase", Wert: "40", Einheit: "U/l", Beleg: "Amylase 40 U/l"}}}
+	g := auswerten(1, "x", text+" Amylase 40 U/l", "2026-01-01", a, time.Now())
 	if g.Werte[0].Einheit != "mg/dl" || g.Werte[0].Wert < 99 || g.Werte[0].Wert > 100 || *g.Werte[0].RefMax < 100 {
 		t.Fatalf("glukose: %+v", g.Werte[0])
 	}
 	if g.Werte[1].Einheit != "mmol/l" || g.Werte[1].Wert != 140 {
 		t.Fatalf("natrium: %+v", g.Werte[1])
 	}
-	if !g.Werte[2].Neu || g.Werte[2].Name != "Lipase" || g.Werte[2].Gruppe != "Weitere" {
-		t.Fatalf("lipase: %+v", g.Werte[2])
+	if !g.Werte[2].Neu || g.Werte[2].Name != "Amylase" || g.Werte[2].Gruppe != "Weitere" {
+		t.Fatalf("amylase: %+v", g.Werte[2])
 	}
 }
 
@@ -379,8 +379,8 @@ func TestWoerterbuchAliases(t *testing.T) {
 			t.Errorf("%q → %v, want %s", in, a, want)
 		}
 	}
-	if finde("Lipase") != nil {
-		t.Error("Lipase is not in the dictionary")
+	if finde("Amylase") != nil {
+		t.Error("Amylase is not in the dictionary")
 	}
 }
 
@@ -480,8 +480,8 @@ func TestSecondSheetExtendsTheLine(t *testing.T) {
 	if len(ferritin) != 2 || ferritin[0].Wert != 18 || ferritin[1].Wert != 31 || ferritin[1].Datum != "2026-06-20" {
 		t.Fatalf("ferritin: %+v", ferritin)
 	}
-	if s := zuletzt(v.Werte); !strings.Contains(s, "Ferritin 18 → 31") {
-		t.Fatalf("zuletzt: %s", s)
+	if s := aenderung(ferritin); s != "vorher 18 ng/ml (März 2026) – gestiegen" {
+		t.Fatalf("change: %s", s)
 	}
 }
 
@@ -573,26 +573,45 @@ func TestPagesShowOnlyTheOwnTimeline(t *testing.T) {
 	if rec := rufe(t, h, "GET", "/healthz", nil, ""); rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
-	if rec := rufe(t, h, "GET", "/", map[string]string{"Remote-User": "anna"}, ""); rec.Code != 401 {
-		t.Fatalf("a forged Remote-User without the secret: %d", rec.Code)
+	// the four pages (#10, owner 2026-10-30): / leads to the values, each page carries the same nav
+	if rec := rufe(t, h, "GET", "/?person=kind-lena-muster", als("anna"), ""); rec.Code != 303 || rec.Header().Get("Location") != "/werte?person=kind-lena-muster" {
+		t.Fatalf("/: %d %s", rec.Code, rec.Header().Get("Location"))
 	}
-	rec := rufe(t, h, "GET", "/", als("anna"), "")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Hämoglobin") || !strings.Contains(rec.Body.String(), saysWerSieht) || !strings.Contains(rec.Body.String(), "Wie hast du geschlafen?") {
-		t.Fatalf("anna: %d %s", rec.Code, rec.Body.String()[:400])
+	for _, pfad := range []string{"/werte", "/befunde", "/befinden", "/arzt"} {
+		if rec := rufe(t, h, "GET", pfad, map[string]string{"Remote-User": "anna"}, ""); rec.Code != 401 {
+			t.Fatalf("%s: a forged Remote-User without the secret: %d", pfad, rec.Code)
+		}
+		rec := rufe(t, h, "GET", pfad, als("anna"), "")
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, `<a href="/werte"`) || !strings.Contains(body, `<a href="/arzt"`) || strings.Count(body, "aria-current=page") != 1 {
+			t.Fatalf("%s: %d %s", pfad, rec.Code, body)
+		}
+		if strings.Contains(body, "Lena") {
+			t.Fatalf("%s: anna is no admin and does not see the child", pfad)
+		}
+		if rec := rufe(t, h, "GET", pfad+"?person=anna", als("ben"), ""); rec.Code != 403 || strings.Contains(rec.Body.String(), "Hämoglobin") || strings.Contains(rec.Body.String(), "Labor März") {
+			t.Fatalf("%s: ben opening anna's: %d", pfad, rec.Code)
+		}
+		if rec := rufe(t, h, "GET", pfad+"?person=anna", als("ben", "admins"), ""); rec.Code != 403 {
+			t.Fatalf("%s: an admin still does not see another adult's: %d", pfad, rec.Code)
+		}
+		rec = rufe(t, h, "GET", pfad+"?person=kind-lena-muster", als("ben", "family", "admins"), "")
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Lena Muster") || !strings.Contains(rec.Body.String(), `href="/arzt?person=kind-lena-muster"`) {
+			t.Fatalf("%s: admin ben opening the child's: %d", pfad, rec.Code)
+		}
 	}
-	if strings.Contains(rec.Body.String(), "Lena") {
-		t.Fatal("anna is no admin and does not see the child")
+	rec := rufe(t, h, "GET", "/werte", als("anna"), "")
+	if !strings.Contains(rec.Body.String(), "Hämoglobin") || !strings.Contains(rec.Body.String(), saysWerSieht) {
+		t.Fatalf("anna's values: %s", rec.Body.String())
 	}
-	rec = rufe(t, h, "GET", "/?person=anna", als("ben"), "")
-	if rec.Code != 403 || strings.Contains(rec.Body.String(), "Hämoglobin") {
-		t.Fatalf("ben opening anna's: %d", rec.Code)
+	if body := rufe(t, h, "GET", "/befinden", als("anna"), "").Body.String(); !strings.Contains(body, "Wie hast du geschlafen?") {
+		t.Fatalf("anna's days: %s", body)
 	}
-	rec = rufe(t, h, "GET", "/?person=kind-lena-muster", als("ben", "family", "admins"), "")
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "Lena Muster") {
-		t.Fatalf("admin ben opening the child's: %d", rec.Code)
-	}
-	if rec = rufe(t, h, "GET", "/?person=anna", als("ben", "admins"), ""); rec.Code != 403 {
-		t.Fatalf("an admin still does not see another adult's: %d", rec.Code)
+	body := rufe(t, h, "GET", "/befunde", als("anna"), "").Body.String()
+	for _, want := range []string{"Labor März", "12.03.2026", "5 Werte gelesen", "prüfen", "https://paperless.example/documents/5/details"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("anna's records lack %q: %s", want, body)
+		}
 	}
 	if rec = rufe(t, h, "GET", "/export.csv", als("anna"), ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "2026-03-12;wert;Hämoglobin;11,8") {
 		t.Fatalf("csv: %d %s", rec.Code, rec.Body.String())
@@ -633,7 +652,7 @@ func TestTheDailyNoteFromThePage(t *testing.T) {
 	if len(fragen) != 6 || !fragen[4].Eigen || fragen[4].Max != 10 || fragen[4].Key != "eigen-atemnot" {
 		t.Fatalf("%+v", fragen)
 	}
-	rec = rufe(t, h, "GET", "/", als("anna"), "")
+	rec = rufe(t, h, "GET", "/befinden", als("anna"), "")
 	if !strings.Contains(rec.Body.String(), "Atemnot") || !strings.Contains(rec.Body.String(), "Für heute notiert") {
 		t.Fatal("the page shows the own question and today's note")
 	}

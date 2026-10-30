@@ -74,6 +74,9 @@ type Eintrag struct {
 	Person  string    `json:"person,omitempty"` // the key; "" is unassigned
 	Gelesen *Gelesen  `json:"gelesen,omitempty"`
 	Fehler  string    `json:"fehler,omitempty"` // a reason the document was given up on (no text)
+	// Leser is the reader version that read it (#10); a record of an older
+	// one is read again by the runs, the newest documents first
+	Leser int `json:"leser,omitempty"`
 }
 
 // Lauf is what the last run did (the status line).
@@ -93,7 +96,11 @@ type Lauf struct {
 	BildWartet   int    `json:"bild_wartet,omitempty"`
 	BildGrund    string `json:"bild_grund,omitempty"`
 	NotizRecht   bool   `json:"notiz_recht,omitempty"` // Paperless refused to delete the old note: no second one was written
-	Fehler       string `json:"fehler,omitempty"`
+	// #10: records an older reader read, still to be read again, in all and by person ("" unassigned)
+	NeuZuLesen    int            `json:"neu_zu_lesen,omitempty"`
+	NeuZuLesenPro map[string]int `json:"neu_zu_lesen_pro,omitempty"`
+	Erklaert      int            `json:"erklaert,omitempty"` // value names the household model explained
+	Fehler        string         `json:"fehler,omitempty"`
 }
 
 func (s *Speicher) lesen(path string, v any) error {

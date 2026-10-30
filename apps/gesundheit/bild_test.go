@@ -208,7 +208,7 @@ func TestALetterSaladPageIsReadFromItsImage(t *testing.T) {
 	}
 	// the transcript behind the value, for its person only
 	h := (&Web{Dienst: d, Secret: "s3cret", Admins: "admins"}).Handler()
-	if rec := rufe(t, h, "GET", "/", als("anna"), ""); !strings.Contains(rec.Body.String(), `/abschrift?dokument=305`) {
+	if rec := rufe(t, h, "GET", "/werte", als("anna"), ""); !strings.Contains(rec.Body.String(), `/abschrift?dokument=305`) {
 		t.Fatalf("start page: %s", rec.Body.String())
 	}
 	if rec := rufe(t, h, "GET", "/abschrift?dokument=305", als("anna"), ""); rec.Code != 200 || !strings.Contains(rec.Body.String(), "| TSH basal | 1,16 |") {
@@ -277,7 +277,7 @@ func TestImageAndOCRDisagreeTheValueSaysPruefen(t *testing.T) {
 		t.Fatalf("tags: %s", tags)
 	}
 	h := (&Web{Dienst: d, Secret: "s3cret", Admins: "admins"}).Handler()
-	if body := rufe(t, h, "GET", "/", als("anna"), "").Body.String(); !strings.Contains(body, "Der Text der Seite nennt eine andere Zahl als das Bild") {
+	if body := rufe(t, h, "GET", "/werte", als("anna"), "").Body.String(); !strings.Contains(body, "steht im Bild als 14,6, im Text der Seite als 13,6") {
 		t.Fatalf("the page does not say prüfen: %s", body)
 	}
 }
