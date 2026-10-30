@@ -9,6 +9,10 @@ PUBLIC_URL: https://gesundheit.${DOMAIN}            # this page, the link in the
 MODEL_URL: ${MODEL_URL}
 MODEL_KEY: ${MODEL_KEY}
 MODEL_NAME: qwen3.6-35b-a3b   # the household model, as scan sets it: there is no built-in ${MODEL_NAME} (podman logs "unset environment variable" and the model is never asked)
+# gesundheit#5 (owner, 2026-10-30): a page whose OCR text is weak is read from its image by this
+# preset (it reads images, the household model does not), through the lease in the hourly run: it
+# transcribes, never interprets. Empty: such pages wait and the status says so
+IMAGE_MODEL: gemma-4-12b
 # document types or tags that are medical records (compared folded); paperless' post-deploy makes them (laib#894)
 BEFUND_ARTEN: Befund,Arztbrief,Labor,Laborbefund,Röntgen,Atemtest,Lungenfunktion,Arzt
 # people without a login whose records the admins keep, comma-separated full names: "Lena Muster, Tom Muster"

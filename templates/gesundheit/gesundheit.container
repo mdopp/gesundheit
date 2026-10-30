@@ -20,6 +20,9 @@ Environment=PUBLIC_URL=${PUBLIC_URL}
 Environment=MODEL_URL=${MODEL_URL}
 Environment=MODEL_KEY=${MODEL_KEY}
 Environment=MODEL_NAME=${MODEL_NAME}
+# gesundheit#5: a page whose OCR text is weak is read from its image by this preset, through the lease (llama README §Images)
+Environment=IMAGE_MODEL=${IMAGE_MODEL}
+Environment=MODEL_LEASE=${MODEL_LEASE}
 Environment="BEFUND_ARTEN=${BEFUND_ARTEN}"
 Environment="KINDER=${KINDER}"
 # the daily question (ADR 0022 §3): bote-notify over host.containers.internal (its 8645 is published beyond loopback, laib#894)

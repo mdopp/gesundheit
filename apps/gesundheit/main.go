@@ -59,6 +59,14 @@ func main() {
 		FrageUm:     env("FRAGE_UHRZEIT", "20:00"),
 		Seite:       eigeneSeite(os.Getenv("PUBLIC_URL"), os.Getenv("PAPERLESS_PUBLIC_URL")),
 	}
+	if name := os.Getenv("IMAGE_MODEL"); name != "" {
+		// #5: a page whose text is weak is read from its image by this preset, through the lease
+		lease := os.Getenv("MODEL_LEASE")
+		if lease == "" && d.Modell.URL != "" {
+			lease = strings.TrimSuffix(d.Modell.URL, "/v1") + "/api/model-lease"
+		}
+		d.Bild = &Bildleser{Modell: d.Modell, Name: name, Lease: &Lease{URL: lease, Key: d.Modell.Key, Holder: "gesundheit"}}
+	}
 	web := &Web{Dienst: d, Secret: os.Getenv("PROXY_SECRET"), Admins: env("ADMIN_GROUP", "admins")}
 
 	// the inner side: Paperless' hook and the Bote's MCP, on the host for

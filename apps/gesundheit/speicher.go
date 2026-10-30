@@ -86,7 +86,14 @@ type Lauf struct {
 	Offen     int       `json:"offen"`              // documents waiting for a person
 	Sortiert  int       `json:"sortiert,omitempty"` // untyped documents recognised as records and typed (#3)
 	ModellWeg bool      `json:"modell_weg,omitempty"`
-	Fehler    string    `json:"fehler,omitempty"`
+	// #5: documents read from their image, the seconds the card was held for it,
+	// and weak ones left for the next run (the card busy, or IMAGE_MODEL unset)
+	Bild         int    `json:"bild,omitempty"`
+	BildSekunden int    `json:"bild_sekunden,omitempty"`
+	BildWartet   int    `json:"bild_wartet,omitempty"`
+	BildGrund    string `json:"bild_grund,omitempty"`
+	NotizRecht   bool   `json:"notiz_recht,omitempty"` // Paperless refused to delete the old note: no second one was written
+	Fehler       string `json:"fehler,omitempty"`
 }
 
 func (s *Speicher) lesen(path string, v any) error {
