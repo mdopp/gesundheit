@@ -12,7 +12,16 @@ documents, this keeps what it read out of them, per person.
 1. **Reads.** Paperless' workflow „Dokument hinzugefügt“ posts to `/hook`
    (debounced: a run once the hooks are quiet for `LAUF_RUHE_S`, at the latest
    after `LAUF_SPAETESTENS_S`), and every `LAUF_STUENDLICH_S` a run starts
-   anyway. A run lists the documents whose type or tag is one of
+   anyway. A run first **sorts** (#3): Paperless only suggests a type, it
+   never sets one, so a scanned record would never be read. The newest
+   documents without a type that the record has not asked about yet, at
+   most 20 a run, each go to the household model with their first 3000
+   characters: a medical record, and which of the `BEFUND_ARTEN` types
+   Paperless has? A yes sets that type on the document in Paperless
+   (visible and correctable there); a no is kept and never asked again.
+   A type the owner changes in Paperless wins: a record Gesundheit typed
+   that is no longer one leaves the timeline, and typing it back reads it
+   again. Then the run lists the documents whose type or tag is one of
    `BEFUND_ARTEN`, skips those in its record, and reads at most 10, oldest
    first. Each is one question to the household model (through the lease,
    `X-Laib-Background`), answered as JSON with the words every value stands
