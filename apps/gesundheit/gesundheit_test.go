@@ -138,7 +138,8 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 				f.perms[id] = b["set_permissions"]
 			}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "title": d.Title, "content": d.Content, "created_date": d.Created, "owner": d.Owner, "document_type": typOderNull(d.Type), "tags": d.Tags})
+		json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "title": d.Title, "content": d.Content, "created_date": d.Created, "owner": d.Owner, "document_type": typOderNull(d.Type), "tags": d.Tags,
+			"permissions": map[string]any{"view": map[string]any{"users": []int{4, 5}, "groups": []int{}}, "change": map[string]any{"users": []int{4, 5}, "groups": []int{}}}})
 	default:
 		http.Error(w, "unbekannt: "+p, 404)
 	}
@@ -387,8 +388,8 @@ func TestLaufReadsALabSheetForItsPerson(t *testing.T) {
 	if pl.docs[5].Owner == nil || *pl.docs[5].Owner != 2 {
 		t.Fatalf("the document is anna's now: %v", pl.docs[5].Owner)
 	}
-	if pl.perms[5] == nil {
-		t.Fatal("the program keeps its own view and change")
+	if b, _ := json.Marshal(pl.perms[5]); string(b) != `{"change":{"groups":[],"users":[4,5]},"view":{"groups":[],"users":[4,5]}}` {
+		t.Fatalf("the program keeps its own view and change, and Dokumente (5) its own: %s", b)
 	}
 	if n := pl.docs[5].Notes; len(n) != 1 || !strings.Contains(n[0], "5 Werte") || !strings.Contains(n[0], "Anna Muster") || !strings.Contains(n[0], "Vitamin D") {
 		t.Fatalf("note: %v", n)
@@ -799,7 +800,7 @@ func TestAnUntypedRecordIsRecognisedTypedAndRead(t *testing.T) {
 	mo.arten = map[string]string{"Muster, Anna   geb.": "Labor", "Rehaklinik": "Labor"}
 	pl.docs[20] = &fakeDoc{ID: 20, Title: "Scan 1", Content: laborAnna, Created: "2026-03-13"}
 	pl.docs[21] = &fakeDoc{ID: 21, Title: "Scan 2", Content: "Reisebestätigung Ihrer Anreise zur Rehaklinik am Montag mit der Bahn, bitte bringen Sie Ihre Unterlagen mit, Treffpunkt Empfang", Created: "2026-03-13"}
-	mo.arten["Reisebestätigung"] = "" // no record, whatever the clinic's name says
+	mo.arten["Ihrer Anreise"] = "" // no record, whatever the clinic's name says
 	delete(mo.arten, "Rehaklinik")
 	pl.docs[22] = &fakeDoc{ID: 22, Title: "Rechnung", Content: "Rechnung über 100 Euro, bitte zahlen " + strings.Repeat("x ", 30), Created: "2026-03-13", Type: 9}
 	l := d.Lauf(context.Background(), "neue Dokumente")

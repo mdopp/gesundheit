@@ -223,10 +223,32 @@ func (p *Paperless) Geben(ctx context.Context, d Dokument, person, ich int) erro
 	}
 	body := map[string]any{"owner": person}
 	if ich > 0 {
-		body["set_permissions"] = map[string]any{
-			"view":   map[string]any{"users": []int{ich}, "groups": []int{}},
-			"change": map[string]any{"users": []int{ich}, "groups": []int{}},
+		// set_permissions replaces: who could see and change it (Dokumente, by the
+		// workflow) still can, and the program too
+		var alt struct {
+			Permissions map[string]struct {
+				Users  []int `json:"users"`
+				Groups []int `json:"groups"`
+			} `json:"permissions"`
 		}
+		if err := p.do(ctx, "GET", fmt.Sprintf("/api/documents/%d/?full_perms=true&fields=id,permissions", d.ID), nil, &alt); err != nil {
+			return err
+		}
+		rechte := map[string]any{}
+		for _, k := range []string{"view", "change"} {
+			users := []int{ich}
+			for _, u := range alt.Permissions[k].Users {
+				if u != ich && u != person {
+					users = append(users, u)
+				}
+			}
+			groups := alt.Permissions[k].Groups
+			if groups == nil {
+				groups = []int{}
+			}
+			rechte[k] = map[string]any{"users": users, "groups": groups}
+		}
+		body["set_permissions"] = rechte
 	}
 	return p.do(ctx, "PATCH", fmt.Sprintf("/api/documents/%d/", d.ID), body, nil)
 }
