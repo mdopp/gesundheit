@@ -63,6 +63,9 @@ type Record struct {
 	Gelesen map[string]*Eintrag `json:"gelesen"` // by document id
 	Lauf    *Lauf               `json:"lauf,omitempty"`
 	Gefragt map[string][]string `json:"gefragt,omitempty"` // day → the persons asked for their note that day
+	// Sortiert are the untyped documents the model was asked about (#3), by id:
+	// the kind of record it set as their type, "" for none
+	Sortiert map[string]string `json:"sortiert,omitempty"`
 }
 
 // Eintrag is one document's state: read and assigned, or waiting for a person.
@@ -80,7 +83,8 @@ type Lauf struct {
 	Gelesen   int       `json:"gelesen"`
 	Werte     int       `json:"werte"`
 	Pruefen   int       `json:"pruefen"`
-	Offen     int       `json:"offen"` // documents waiting for a person
+	Offen     int       `json:"offen"`              // documents waiting for a person
+	Sortiert  int       `json:"sortiert,omitempty"` // untyped documents recognised as records and typed (#3)
 	ModellWeg bool      `json:"modell_weg,omitempty"`
 	Fehler    string    `json:"fehler,omitempty"`
 }
@@ -130,6 +134,9 @@ func (s *Speicher) record() (*Record, error) {
 	if r.Gelesen == nil {
 		r.Gelesen = map[string]*Eintrag{}
 	}
+	if r.Sortiert == nil {
+		r.Sortiert = map[string]string{}
+	}
 	return r, nil
 }
 
@@ -142,6 +149,30 @@ func (s *Speicher) Merken(id string, e *Eintrag) error {
 		return err
 	}
 	r.Gelesen[id] = e
+	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
+}
+
+// SortiertMerken keeps the model's verdict on an untyped document (#3).
+func (s *Speicher) SortiertMerken(id, art string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.record()
+	if err != nil {
+		return err
+	}
+	r.Sortiert[id] = art
+	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
+}
+
+// Vergessen drops a document's entry, so a later run reads it again when it is a record again.
+func (s *Speicher) Vergessen(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, err := s.record()
+	if err != nil {
+		return err
+	}
+	delete(r.Gelesen, id)
 	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
 }
 

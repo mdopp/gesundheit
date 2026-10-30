@@ -284,11 +284,20 @@ func (d *Dienst) Lauf(ctx context.Context, anlass string) Lauf {
 		l.Fehler = err.Error()
 		return l
 	}
+	if err := d.sortieren(ctx, typen, rec, &l); errors.Is(err, ErrModellWeg) {
+		l.ModellWeg = true
+		log.Printf("lauf: %v, der nächste Lauf fragt wieder", err)
+		return l
+	} else if err != nil {
+		l.Fehler = err.Error()
+		return l
+	}
 	docs, err := d.Paperless.Befunde(ctx, typen, tags)
 	if err != nil {
 		l.Fehler = err.Error()
 		return l
 	}
+	d.umgestellt(ctx, rec, docs, typen, tags)
 	sort.Slice(docs, func(i, j int) bool { return docs[i].ID < docs[j].ID })
 	ich := d.meineID(ctx)
 	for _, doc := range docs {
@@ -446,6 +455,9 @@ func (d *Dienst) Status() {
 	if rec != nil && rec.Lauf != nil {
 		l := rec.Lauf
 		detail = fmt.Sprintf("Zuletzt %s: %d Dokumente gelesen, %d Werte", l.Am.Format("02.01. 15:04"), l.Gelesen, l.Werte)
+		if l.Sortiert > 0 {
+			detail += fmt.Sprintf(", %d neu als Befund erkannt", l.Sortiert)
+		}
 		if l.Offen > 0 {
 			detail += fmt.Sprintf(", %d warten auf eine Zuordnung", l.Offen)
 			findings = append(findings, map[string]string{"severity": "gelb", "detail": fmt.Sprintf("%d Befunde sind niemandem zugeordnet", l.Offen), "fix": "Unter Gesundheit → „Für wen?“ zuordnen"})

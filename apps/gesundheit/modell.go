@@ -28,25 +28,40 @@ var objektRe = regexp.MustCompile(`(?s)\{.*\}`)
 
 // Frage asks for one document's data.
 func (m *Modell) Frage(ctx context.Context, text string) (Antwort, error) {
-	if m.URL == "" {
-		return Antwort{}, ErrModellWeg
-	}
 	r := []rune(text)
 	if len(r) > zeichen {
 		text = string(r[:zeichen])
 	}
+	var a Antwort
+	content, err := m.fragen(ctx, frageSystem, "Text:\n"+text, 4096)
+	if err != nil {
+		return a, err
+	}
+	if obj := objektRe.FindString(content); obj != "" {
+		if err := json.Unmarshal([]byte(obj), &a); err != nil {
+			return Antwort{}, fmt.Errorf("Antwort ist kein JSON: %v", err)
+		}
+	}
+	return a, nil
+}
+
+// fragen sends one system line and one text, and answers the model's JSON as it came.
+func (m *Modell) fragen(ctx context.Context, system, user string, maxTokens int) (string, error) {
+	if m.URL == "" {
+		return "", ErrModellWeg
+	}
 	body := map[string]any{
 		"model":                m.Name,
-		"messages":             []map[string]string{{"role": "system", "content": frageSystem}, {"role": "user", "content": "Text:\n" + text}},
+		"messages":             []map[string]string{{"role": "system", "content": system}, {"role": "user", "content": user}},
 		"temperature":          0.1,
-		"max_tokens":           4096,
+		"max_tokens":           maxTokens,
 		"response_format":      map[string]string{"type": "json_object"},
 		"chat_template_kwargs": map[string]bool{"enable_thinking": false},
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", m.URL+"/chat/completions", bytes.NewReader(b))
 	if err != nil {
-		return Antwort{}, err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+m.Key)
@@ -57,12 +72,12 @@ func (m *Modell) Frage(ctx context.Context, text string) (Antwort, error) {
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return Antwort{}, fmt.Errorf("%w: %v", ErrModellWeg, err)
+		return "", fmt.Errorf("%w: %v", ErrModellWeg, err)
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode >= 300 {
-		return Antwort{}, fmt.Errorf("%w (%d)", ErrModellWeg, resp.StatusCode)
+		return "", fmt.Errorf("%w (%d)", ErrModellWeg, resp.StatusCode)
 	}
 	var out struct {
 		Choices []struct {
@@ -70,13 +85,7 @@ func (m *Modell) Frage(ctx context.Context, text string) (Antwort, error) {
 		} `json:"choices"`
 	}
 	if json.Unmarshal(data, &out) != nil || len(out.Choices) == 0 {
-		return Antwort{}, fmt.Errorf("%w: keine Antwort", ErrModellWeg)
+		return "", fmt.Errorf("%w: keine Antwort", ErrModellWeg)
 	}
-	var a Antwort
-	if obj := objektRe.FindString(out.Choices[0].Message.Content); obj != "" {
-		if err := json.Unmarshal([]byte(obj), &a); err != nil {
-			return Antwort{}, fmt.Errorf("Antwort ist kein JSON: %v", err)
-		}
-	}
-	return a, nil
+	return out.Choices[0].Message.Content, nil
 }

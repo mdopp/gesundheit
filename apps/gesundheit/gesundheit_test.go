@@ -88,7 +88,7 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		var items []any
 		for _, d := range f.docs {
-			ok := false
+			ok := q.Get("document_type__isnull") == "1" && d.Type == 0
 			for _, t := range strings.Split(q.Get("document_type__id__in"), ",") {
 				if n, _ := strconv.Atoi(t); n == d.Type && n != 0 {
 					ok = true
@@ -103,7 +103,7 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if ok {
-				items = append(items, map[string]any{"id": d.ID, "title": d.Title, "created_date": d.Created, "owner": d.Owner, "document_type": d.Type, "tags": d.Tags})
+				items = append(items, map[string]any{"id": d.ID, "title": d.Title, "created_date": d.Created, "owner": d.Owner, "document_type": typOderNull(d.Type), "tags": d.Tags})
 			}
 		}
 		listJSON(w, items)
@@ -129,13 +129,17 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 					d.Tags = append(d.Tags, int(x.(float64)))
 				}
 			}
+			if t, ok := b["document_type"].(float64); ok {
+				d.Type = int(t)
+			}
 			if o, ok := b["owner"].(float64); ok {
 				n := int(o)
 				d.Owner = &n
 				f.perms[id] = b["set_permissions"]
 			}
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "title": d.Title, "content": d.Content, "created_date": d.Created, "owner": d.Owner, "document_type": d.Type, "tags": d.Tags})
+		json.NewEncoder(w).Encode(map[string]any{"id": d.ID, "title": d.Title, "content": d.Content, "created_date": d.Created, "owner": d.Owner, "document_type": typOderNull(d.Type), "tags": d.Tags,
+			"permissions": map[string]any{"view": map[string]any{"users": []int{4, 5}, "groups": []int{}}, "change": map[string]any{"users": []int{4, 5}, "groups": []int{}}}})
 	default:
 		http.Error(w, "unbekannt: "+p, 404)
 	}
@@ -154,11 +158,13 @@ func (f *fakePaperless) tagNames(id int) []string {
 // fakeModell answers each question with the JSON its answers map holds for a
 // text fragment, and counts the questions.
 type fakeModell struct {
-	mu      sync.Mutex
-	answers map[string]string
-	asked   int
-	weg     bool
-	srv     *httptest.Server
+	mu       sync.Mutex
+	answers  map[string]string
+	arten    map[string]string // #3: the sorting question's answer for a text fragment; none: no record
+	sortiert int
+	asked    int
+	weg      bool
+	srv      *httptest.Server
 }
 
 func newFakeModell(answers map[string]string) *fakeModell {
@@ -175,6 +181,17 @@ func newFakeModell(answers map[string]string) *fakeModell {
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "Du entscheidest") {
+			m.sortiert++
+			ans := `{"befund": false, "art": null}`
+			for frag, art := range m.arten {
+				if strings.Contains(string(body), frag) {
+					ans = `{"befund": true, "art": "` + art + `"}`
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": ans}}}})
+			return
+		}
 		m.asked++
 		for frag, ans := range m.answers {
 			if strings.Contains(string(body), frag) {
@@ -283,7 +300,7 @@ func TestAuswertenTakesOnlyWhatTheTextBacks(t *testing.T) {
 }
 
 func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
-	a := Antwort{Werte: []struct{ Name, Wert, Einheit, Ref, Beleg string }{{"CRP", "21", "mg/l", "", "CRP 2,1 mg/l"}}}
+	a := Antwort{Werte: []AntwortWert{{"CRP", "21", "mg/l", "", "CRP 2,1 mg/l", ""}}}
 	g := auswerten(1, "x", "CRP 2,1 mg/l und mehr Text", "", a, time.Now())
 	if len(g.Werte) != 0 || len(g.Weg) != 1 {
 		t.Fatalf("%+v %v", g.Werte, g.Weg)
@@ -292,10 +309,10 @@ func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
 
 func TestAuswertenConvertsOnlyKnownUnits(t *testing.T) {
 	text := "Glukose 5,5 mmol/l (3,9 - 5,6)  Natrium 140 mmol/l"
-	a := Antwort{Werte: []struct{ Name, Wert, Einheit, Ref, Beleg string }{
-		{"Glukose", "5,5", "mmol/l", "3,9 - 5,6", "Glukose 5,5 mmol/l (3,9 - 5,6)"},
-		{"Natrium", "140", "mmol/l", "", "Natrium 140 mmol/l"},
-		{"Lipase", "40", "U/l", "", "Lipase 40 U/l"}}}
+	a := Antwort{Werte: []AntwortWert{
+		{"Glukose", "5,5", "mmol/l", "3,9 - 5,6", "Glukose 5,5 mmol/l (3,9 - 5,6)", ""},
+		{"Natrium", "140", "mmol/l", "", "Natrium 140 mmol/l", ""},
+		{"Lipase", "40", "U/l", "", "Lipase 40 U/l", ""}}}
 	g := auswerten(1, "x", text+" Lipase 40 U/l", "2026-01-01", a, time.Now())
 	if g.Werte[0].Einheit != "mg/dl" || g.Werte[0].Wert < 99 || g.Werte[0].Wert > 100 || *g.Werte[0].RefMax < 100 {
 		t.Fatalf("glukose: %+v", g.Werte[0])
@@ -371,8 +388,8 @@ func TestLaufReadsALabSheetForItsPerson(t *testing.T) {
 	if pl.docs[5].Owner == nil || *pl.docs[5].Owner != 2 {
 		t.Fatalf("the document is anna's now: %v", pl.docs[5].Owner)
 	}
-	if pl.perms[5] == nil {
-		t.Fatal("the program keeps its own view and change")
+	if b, _ := json.Marshal(pl.perms[5]); string(b) != `{"change":{"groups":[],"users":[4,5]},"view":{"groups":[],"users":[4,5]}}` {
+		t.Fatalf("the program keeps its own view and change, and Dokumente (5) its own: %s", b)
 	}
 	if n := pl.docs[5].Notes; len(n) != 1 || !strings.Contains(n[0], "5 Werte") || !strings.Contains(n[0], "Anna Muster") || !strings.Contains(n[0], "Vitamin D") {
 		t.Fatalf("note: %v", n)
@@ -771,5 +788,82 @@ func TestTheDailyQuestionOncePerPersonAndDay(t *testing.T) {
 	jetzt = time.Date(2026, 10, 30, 20, 30, 0, 0, time.UTC)
 	if n := d.Fragen(context.Background()); n != 0 {
 		t.Fatal("asked without a token")
+	}
+}
+
+// #3: a record scanned without a type is recognised by the model, typed in
+// Paperless and read in the same run; a travel confirmation is not; each
+// document is asked about once; the owner's correction in Paperless takes
+// the values out of the timeline again.
+func TestAnUntypedRecordIsRecognisedTypedAndRead(t *testing.T) {
+	d, pl, mo := aufbau(t)
+	mo.arten = map[string]string{"Muster, Anna   geb.": "Labor", "Rehaklinik": "Labor"}
+	pl.docs[20] = &fakeDoc{ID: 20, Title: "Scan 1", Content: laborAnna, Created: "2026-03-13"}
+	pl.docs[21] = &fakeDoc{ID: 21, Title: "Scan 2", Content: "Reisebestätigung Ihrer Anreise zur Rehaklinik am Montag mit der Bahn, bitte bringen Sie Ihre Unterlagen mit, Treffpunkt Empfang", Created: "2026-03-13"}
+	mo.arten["Ihrer Anreise"] = "" // no record, whatever the clinic's name says
+	delete(mo.arten, "Rehaklinik")
+	pl.docs[22] = &fakeDoc{ID: 22, Title: "Rechnung", Content: "Rechnung über 100 Euro, bitte zahlen " + strings.Repeat("x ", 30), Created: "2026-03-13", Type: 9}
+	l := d.Lauf(context.Background(), "neue Dokumente")
+	if l.Sortiert != 1 || l.Gelesen != 1 || l.Werte != 5 || mo.sortiert != 2 {
+		t.Fatalf("lauf: %+v, sorting asked %d", l, mo.sortiert)
+	}
+	if pl.docs[20].Type != 7 || pl.docs[21].Type != 0 || pl.docs[22].Type != 9 {
+		t.Fatalf("types: %d %d %d", pl.docs[20].Type, pl.docs[21].Type, pl.docs[22].Type)
+	}
+	if v, _ := d.Speicher.Verlauf("anna"); len(v.Werte) != 5 {
+		t.Fatalf("anna: %+v", v.Werte)
+	}
+	st, _ := os.ReadFile(d.StatusFile)
+	if !strings.Contains(string(st), "1 neu als Befund erkannt") {
+		t.Fatalf("status: %s", st)
+	}
+	// the next run asks about nothing again
+	d.Lauf(context.Background(), "stündlich")
+	if mo.sortiert != 2 {
+		t.Fatalf("asked again: %d", mo.sortiert)
+	}
+	// the owner says in Paperless it is an invoice: out of anna's timeline
+	pl.docs[20].Type = 9
+	d.Lauf(context.Background(), "stündlich")
+	if v, _ := d.Speicher.Verlauf("anna"); len(v.Werte) != 0 {
+		t.Fatalf("after the correction: %+v", v.Werte)
+	}
+	// and back to Labor: read again
+	pl.docs[20].Type = 7
+	if l := d.Lauf(context.Background(), "stündlich"); l.Gelesen != 1 {
+		t.Fatalf("typed back: %+v", l)
+	}
+}
+
+// typOderNull is a document's type as Paperless answers it: null for none.
+func typOderNull(t int) any {
+	if t == 0 {
+		return nil
+	}
+	return t
+}
+
+// #5, from the first real run: a name read from letter salad („ulm!“) is no
+// value; a value's own date must stand in the text; a sheet over years
+// yields each value on the day of its examination.
+func TestAuswertenTakesANameAndADateOnlyFromThePage(t *testing.T) {
+	text := `Krankenblatt Spiroergometrie
+06.01.2020 VO2max 35 ml/min/kg
+12.03.2016 VO2max 31 ml/min/kg
+ulm! 0,3 l1!
+Hepatitis B (Anti-HBs) 0,07 COI`
+	a := Antwort{Datum: &Belegt{Wert: "2020-01-06", Beleg: "06.01.2020"}, Werte: []AntwortWert{
+		{Name: "VO2max", Wert: "35", Einheit: "ml/min/kg", Beleg: "06.01.2020 VO2max 35 ml/min/kg", Datum: "2020-01-06"},
+		{Name: "VO2max", Wert: "31", Einheit: "ml/min/kg", Beleg: "12.03.2016 VO2max 31 ml/min/kg", Datum: "2016-03-12"},
+		{Name: "ulm!", Wert: "0,3", Beleg: "ulm! 0,3"},
+		{Name: "Hepatitis B (Anti-HBs)", Wert: "0,07", Einheit: "COI", Beleg: "Hepatitis B (Anti-HBs) 0,07 COI", Datum: "2013-01-13"},
+	}}
+	g := auswerten(1, "x", text, "2026-01-01", a, time.Now())
+	if len(g.Werte) != 2 || g.Werte[0].Datum != "2020-01-06" || g.Werte[1].Datum != "2016-03-12" {
+		t.Fatalf("werte: %+v", g.Werte)
+	}
+	weg := strings.Join(g.Weg, "; ")
+	if !strings.Contains(weg, "„ulm!“ (kein lesbarer Name im Text)") || !strings.Contains(weg, "Hepatitis B (Anti-HBs) (sein Datum steht so nicht im Text)") {
+		t.Fatalf("weg: %s", weg)
 	}
 }
