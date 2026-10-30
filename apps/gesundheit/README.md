@@ -27,6 +27,10 @@ documents, this keeps what it read out of them, per person.
    `X-Laib-Background`), answered as JSON with the words every value stands
    on. **A value is kept only when its words are in the document's text**
    (`belegt`), its number is in those words, and it has a number's shape;
+   its name is one the dictionary knows or a word of letters standing in
+   those words (no „ulm!“ from letter salad, #5); a value with a date of its
+   own (a sheet over several examinations gives each value the day of its
+   examination) is kept only when that date stands in the text;
    else it is listed in the note on the document and the document gets the
    tag `prüfen`. Units are converted only where `woerterbuch.go` names the
    exact factor; a name the dictionary does not know is kept as the report

@@ -300,7 +300,7 @@ func TestAuswertenTakesOnlyWhatTheTextBacks(t *testing.T) {
 }
 
 func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
-	a := Antwort{Werte: []struct{ Name, Wert, Einheit, Ref, Beleg string }{{"CRP", "21", "mg/l", "", "CRP 2,1 mg/l"}}}
+	a := Antwort{Werte: []AntwortWert{{"CRP", "21", "mg/l", "", "CRP 2,1 mg/l", ""}}}
 	g := auswerten(1, "x", "CRP 2,1 mg/l und mehr Text", "", a, time.Now())
 	if len(g.Werte) != 0 || len(g.Weg) != 1 {
 		t.Fatalf("%+v %v", g.Werte, g.Weg)
@@ -309,10 +309,10 @@ func TestAuswertenRefusesANumberNotInItsBeleg(t *testing.T) {
 
 func TestAuswertenConvertsOnlyKnownUnits(t *testing.T) {
 	text := "Glukose 5,5 mmol/l (3,9 - 5,6)  Natrium 140 mmol/l"
-	a := Antwort{Werte: []struct{ Name, Wert, Einheit, Ref, Beleg string }{
-		{"Glukose", "5,5", "mmol/l", "3,9 - 5,6", "Glukose 5,5 mmol/l (3,9 - 5,6)"},
-		{"Natrium", "140", "mmol/l", "", "Natrium 140 mmol/l"},
-		{"Lipase", "40", "U/l", "", "Lipase 40 U/l"}}}
+	a := Antwort{Werte: []AntwortWert{
+		{"Glukose", "5,5", "mmol/l", "3,9 - 5,6", "Glukose 5,5 mmol/l (3,9 - 5,6)", ""},
+		{"Natrium", "140", "mmol/l", "", "Natrium 140 mmol/l", ""},
+		{"Lipase", "40", "U/l", "", "Lipase 40 U/l", ""}}}
 	g := auswerten(1, "x", text+" Lipase 40 U/l", "2026-01-01", a, time.Now())
 	if g.Werte[0].Einheit != "mg/dl" || g.Werte[0].Wert < 99 || g.Werte[0].Wert > 100 || *g.Werte[0].RefMax < 100 {
 		t.Fatalf("glukose: %+v", g.Werte[0])
@@ -841,4 +841,29 @@ func typOderNull(t int) any {
 		return nil
 	}
 	return t
+}
+
+// #5, from the first real run: a name read from letter salad („ulm!“) is no
+// value; a value's own date must stand in the text; a sheet over years
+// yields each value on the day of its examination.
+func TestAuswertenTakesANameAndADateOnlyFromThePage(t *testing.T) {
+	text := `Krankenblatt Spiroergometrie
+06.01.2020 VO2max 35 ml/min/kg
+12.03.2016 VO2max 31 ml/min/kg
+ulm! 0,3 l1!
+Hepatitis B (Anti-HBs) 0,07 COI`
+	a := Antwort{Datum: &Belegt{Wert: "2020-01-06", Beleg: "06.01.2020"}, Werte: []AntwortWert{
+		{Name: "VO2max", Wert: "35", Einheit: "ml/min/kg", Beleg: "06.01.2020 VO2max 35 ml/min/kg", Datum: "2020-01-06"},
+		{Name: "VO2max", Wert: "31", Einheit: "ml/min/kg", Beleg: "12.03.2016 VO2max 31 ml/min/kg", Datum: "2016-03-12"},
+		{Name: "ulm!", Wert: "0,3", Beleg: "ulm! 0,3"},
+		{Name: "Hepatitis B (Anti-HBs)", Wert: "0,07", Einheit: "COI", Beleg: "Hepatitis B (Anti-HBs) 0,07 COI", Datum: "2013-01-13"},
+	}}
+	g := auswerten(1, "x", text, "2026-01-01", a, time.Now())
+	if len(g.Werte) != 2 || g.Werte[0].Datum != "2020-01-06" || g.Werte[1].Datum != "2016-03-12" {
+		t.Fatalf("werte: %+v", g.Werte)
+	}
+	weg := strings.Join(g.Weg, "; ")
+	if !strings.Contains(weg, "„ulm!“ (kein lesbarer Name im Text)") || !strings.Contains(weg, "Hepatitis B (Anti-HBs) (sein Datum steht so nicht im Text)") {
+		t.Fatalf("weg: %s", weg)
+	}
 }
