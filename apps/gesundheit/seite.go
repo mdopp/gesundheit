@@ -54,6 +54,12 @@ func (w *Web) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(rw http.ResponseWriter, r *http.Request) { fmt.Fprintln(rw, "ok") })
 	mux.HandleFunc("GET /{$}", w.start)
+	mux.HandleFunc("GET /werte", w.werte)
+	mux.HandleFunc("GET /befunde", w.befunde)
+	mux.HandleFunc("GET /befinden", w.befinden)
+	mux.HandleFunc("GET /arzt", w.arzt)
+	mux.HandleFunc("POST /profil", w.profil)
+	mux.HandleFunc("POST /erklaerung", w.erklaerungSpeichern)
 	mux.HandleFunc("POST /tag", w.tag)
 	mux.HandleFunc("GET /fragen", w.fragen)
 	mux.HandleFunc("POST /fragen", w.fragen)
@@ -92,32 +98,288 @@ func (w *Web) wer(rw http.ResponseWriter, r *http.Request) (*Person, sitzung, []
 	return nil, s, nil
 }
 
+// seiten are the program's pages, in the nav's order (owner 2026-10-30:
+// a small group of pages; Haus links to these paths, keep them stable).
+var seiten = []struct{ Pfad, Name string }{
+	{"/werte", "Werte"},
+	{"/befunde", "Befunde"},
+	{"/befinden", "Wie es mir ging"},
+	{"/arzt", "Für den Arzt"},
+}
+
+// start sends to the values: the page most people open the program for.
 func (w *Web) start(rw http.ResponseWriter, r *http.Request) {
-	p, _, darf := w.wer(rw, r)
-	if p == nil {
-		return
+	ziel := "/werte"
+	if q := r.URL.RawQuery; q != "" {
+		ziel += "?" + q
 	}
-	v, _ := w.Dienst.Speicher.Verlauf(p.Key)
-	tage, _ := w.Dienst.Speicher.Tage(p.Key)
-	fragen, _ := w.Dienst.Speicher.Fragen(p.Key)
-	heute := w.Dienst.now().Format("2006-01-02")
+	http.Redirect(rw, r, ziel, http.StatusSeeOther)
+}
+
+// rahmen writes a page with the nav of the four pages (the current one
+// marked), the people the viewer may open, and the message of a form.
+func (w *Web) rahmen(rw http.ResponseWriter, r *http.Request, p *Person, s sitzung, darf []Person, pfad, titel, body string) {
 	var b strings.Builder
-	b.WriteString(`<p class=k>` + saysKeinArzt + `</p>`)
+	q := ""
+	if p.Key != s.Login {
+		q = "?person=" + html.EscapeString(p.Key)
+	}
+	b.WriteString(`<nav class=seiten aria-label="Seiten">`)
+	for _, x := range seiten {
+		aktiv := ""
+		if x.Pfad == pfad {
+			aktiv = ` aria-current=page`
+		}
+		fmt.Fprintf(&b, `<a href="%s%s"%s>%s</a>`, x.Pfad, q, aktiv, x.Name)
+	}
+	b.WriteString(`</nav>`)
 	if len(darf) > 1 {
-		b.WriteString(`<nav class=personen>`)
+		b.WriteString(`<nav class=personen aria-label="Wessen Seiten">`)
 		for _, d := range darf {
 			cls := ""
 			if d.Key == p.Key {
-				cls = ` class=aktiv`
+				cls = ` class=aktiv aria-current=true`
 			}
-			fmt.Fprintf(&b, `<a%s href="/?person=%s">%s</a>`, cls, html.EscapeString(d.Key), html.EscapeString(d.Anzeige))
+			fmt.Fprintf(&b, `<a%s href="%s?person=%s">%s</a>`, cls, pfad, html.EscapeString(d.Key), html.EscapeString(d.Anzeige))
 		}
 		b.WriteString(`</nav>`)
 	}
 	if meldung := r.URL.Query().Get("m"); meldung != "" {
-		b.WriteString(`<p class=ok>` + html.EscapeString(meldung) + `</p>`)
+		b.WriteString(`<p class=ok role=status>` + html.EscapeString(meldung) + `</p>`)
 	}
-	// today's note
+	seite(rw, http.StatusOK, titel, b.String()+body)
+}
+
+// neuZuLesen is the line while a new reader reads a person's records again (#10).
+func (w *Web) neuZuLesen(key string) string {
+	rec, err := w.Dienst.Speicher.Record()
+	if err != nil || rec.Lauf == nil || rec.Lauf.NeuZuLesenPro[key] == 0 {
+		return ""
+	}
+	n := rec.Lauf.NeuZuLesenPro[key]
+	befunde := "Befunde"
+	if n == 1 {
+		befunde = "Befund"
+	}
+	return fmt.Sprintf(`<p class=hinweis role=status>Gesundheit liest deine Befunde gerade noch einmal, genauer als beim ersten Mal: noch %d %s neu zu lesen, einige pro Stunde. Bis dahin kann ein Wert falsch gelesen sein.</p>`, n, befunde)
+}
+
+// werte is the values page: one row per value that reads at first sight
+// (#10), grouped, with „Was ist das?“; then the profile.
+func (w *Web) werte(rw http.ResponseWriter, r *http.Request) {
+	p, s, darf := w.wer(rw, r)
+	if p == nil {
+		return
+	}
+	v, _ := w.Dienst.Speicher.Verlauf(p.Key)
+	pr, _ := w.Dienst.Speicher.Profil(p.Key)
+	ex, _ := w.Dienst.Speicher.Erklaerungen()
+	var b strings.Builder
+	b.WriteString(`<p class=k>` + saysKeinArzt + `</p>`)
+	b.WriteString(w.neuZuLesen(p.Key))
+	if len(v.Werte) == 0 {
+		b.WriteString(`<p>Noch keine Werte. Sobald ein Laborblatt oder ein Befund in Paperless liegt (Scanner „Nur für mich“ oder Mail an das Dokumenten-Postfach mit Betreff „Arzt: …“), lese ich die Werte und zeige sie hier.</p>`)
+	} else {
+		b.WriteString(`<p class=k>Jede Zeile zeigt den letzten Wert mit Datum, wo er zu dem Bereich steht, den sein Befund nennt, und wie er sich seit dem Mal davor verändert hat. Ab drei Messungen zeigt ein Verlauf die Jahre; hell hinterlegt ist der Bereich laut Befund.</p>`)
+		b.WriteString(werteHTML(v, &pr, ex, s.Admin, w.Dienst.Public, p.Key, "/werte"+mitPerson(p, s)))
+	}
+	b.WriteString(profilHTML(p.Key, pr))
+	fmt.Fprintf(&b, `<section class=k><p>%s</p><p><a href="/export.csv?person=%s">Als CSV herunterladen</a> · <form method=post action="/loeschen" class=inline onsubmit="return confirm('Alle Werte, Tagesnotizen und Angaben von %s löschen? Die Dokumente bleiben in Paperless.')"><input type=hidden name=person value="%s"><button class=k>Verlauf löschen</button></form></p></section>`,
+		saysWerSieht, html.EscapeString(p.Key), html.EscapeString(p.Anzeige), html.EscapeString(p.Key))
+	w.rahmen(rw, r, p, s, darf, "/werte", "Werte · "+p.Anzeige, b.String())
+}
+
+func mitPerson(p *Person, s sitzung) string {
+	if p.Key == s.Login {
+		return ""
+	}
+	return "?person=" + p.Key
+}
+
+// werteHTML draws the rows, by group.
+func werteHTML(v Verlauf, pr *Profil, ex map[string]Erklaerung, admin bool, public, person, zurueck string) string {
+	byName := map[string][]Messwert{}
+	for _, m := range v.Werte {
+		byName[m.Name] = append(byName[m.Name], m)
+	}
+	var names []string
+	for n := range byName {
+		names = append(names, n)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		gi, gj := gruppenRang(byName[names[i]][0].Gruppe), gruppenRang(byName[names[j]][0].Gruppe)
+		if gi != gj {
+			return gi < gj
+		}
+		return names[i] < names[j]
+	})
+	var b strings.Builder
+	gruppe := ""
+	for _, n := range names {
+		ms := byName[n]
+		if g := ms[0].Gruppe; g != gruppe {
+			if gruppe != "" {
+				b.WriteString(`</section>`)
+			}
+			gruppe = g
+			fmt.Fprintf(&b, `<section class=gruppe><h2>%s</h2>`, html.EscapeString(g))
+		}
+		b.WriteString(zeileHTML(n, ms, pr, ex, admin, public, person, zurueck))
+	}
+	if gruppe != "" {
+		b.WriteString(`</section>`)
+	}
+	return b.String()
+}
+
+// zeileHTML is one value: its name and marks, the latest value with its
+// date, the status in words, the change, the chart from three days on,
+// and „Was ist das?“.
+func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, admin bool, public, person, zurueck string) string {
+	last := ms[len(ms)-1]
+	var b strings.Builder
+	b.WriteString(`<article class=zeile><h3>` + html.EscapeString(n))
+	if last.Neu {
+		b.WriteString(` <span class=marke title="Dieser Name steht nicht im Wörterbuch; er wird so geführt, wie der Befund ihn schreibt.">neu</span>`)
+	}
+	if last.Quelle == "bild" {
+		fmt.Fprintf(&b, ` <a class=marke href="/abschrift?dokument=%d&amp;person=%s" title="Der Text der Seite war zu schwach; der Wert ist aus dem Bild abgeschrieben.">aus dem Bild gelesen</a>`, last.Dokument, html.EscapeString(person))
+	}
+	if last.Pruefen {
+		grund := last.PruefenGrund
+		if grund == "" {
+			grund = "Der Text der Seite nennt eine andere Zahl als das Bild"
+		}
+		b.WriteString(` <span class="marke pruefen" title="` + html.EscapeString(grund) + `. Bitte im Dokument nachsehen.">prüfen</span>`)
+	}
+	b.WriteString(`</h3>`)
+	e := einordnen(last, pr)
+	cls := "status"
+	if e.Lage == LageUeber || e.Lage == LageUnter {
+		cls += " ausser"
+	}
+	b.WriteString(`<p class=jetzt>` + html.EscapeString(wertMitDatum(last)) + `</p>`)
+	fmt.Fprintf(&b, `<p class="%s">%s`, cls, html.EscapeString(e.Status))
+	if e.Woher != "" {
+		b.WriteString(` <span class=k>· ` + html.EscapeString(e.Woher) + `</span>`)
+	}
+	b.WriteString(`</p>`)
+	if last.Pruefen && last.PruefenGrund != "" {
+		b.WriteString(`<p class=k>Beim Lesen unsicher: ` + html.EscapeString(last.PruefenGrund) + `.</p>`)
+	}
+	fmt.Fprintf(&b, `<p class=k>%s %s</p>`, html.EscapeString(aenderung(ms)), dokLink(last.Dokument, public))
+	b.WriteString(diagramm(ms, public))
+	b.WriteString(erklaerungHTML(n, ex, admin, zurueck))
+	b.WriteString(`</article>`)
+	return b.String()
+}
+
+// befunde lists the person's medical documents, newest first: what each
+// yielded, its transcript, what to check; and the ones waiting for a person.
+func (w *Web) befunde(rw http.ResponseWriter, r *http.Request) {
+	p, s, darf := w.wer(rw, r)
+	if p == nil {
+		return
+	}
+	rec, _ := w.Dienst.Speicher.Record()
+	var b strings.Builder
+	b.WriteString(w.neuZuLesen(p.Key))
+	var eigene []*Eintrag
+	if rec != nil {
+		for _, e := range rec.Gelesen {
+			if e.Person == p.Key {
+				eigene = append(eigene, e)
+			}
+		}
+	}
+	datum := func(e *Eintrag) string {
+		if e.Gelesen != nil {
+			return e.Gelesen.Datum
+		}
+		return ""
+	}
+	sort.Slice(eigene, func(i, j int) bool { return datum(eigene[i]) > datum(eigene[j]) })
+	if len(eigene) == 0 {
+		b.WriteString(`<p>Noch keine Befunde. Ein Laborblatt oder Arztbrief, das in Paperless liegt (Scanner „Nur für mich“ oder Mail mit Betreff „Arzt: …“), steht hier, sobald ich es gelesen habe.</p>`)
+	} else {
+		b.WriteString(`<ul class=befunde>`)
+		for _, e := range eigene {
+			b.WriteString(befundHTML(e, w.Dienst.Public, p.Key))
+		}
+		b.WriteString(`</ul>`)
+	}
+	// open documents: anyone may take one as their own, an admin also for a child
+	if offene := w.Dienst.Offene(); len(offene) > 0 {
+		b.WriteString(`<section><h2>Für wen?</h2><p>Diese Befunde habe ich gelesen, aber niemandem zuordnen können.</p>`)
+		for _, e := range offene {
+			g := e.Gelesen
+			fmt.Fprintf(&b, `<form method=post action="/zuordnen" class=offen><input type=hidden name=dokument value="%d"><span>%s (%s, %d Werte, Patient „%s“)</span><select name=person>`, g.Dokument, html.EscapeString(g.Titel), datumText(g.Datum), len(g.Werte), html.EscapeString(g.Patient))
+			for _, d := range darf {
+				fmt.Fprintf(&b, `<option value="%s">%s</option>`, html.EscapeString(d.Key), html.EscapeString(d.Anzeige))
+			}
+			b.WriteString(`</select><button>Zuordnen</button></form>`)
+		}
+		b.WriteString(`</section>`)
+	}
+	w.rahmen(rw, r, p, s, darf, "/befunde", "Befunde · "+p.Anzeige, b.String())
+}
+
+// befundHTML is one document: date, title, links, what was read, what to check.
+func befundHTML(e *Eintrag, public, person string) string {
+	var b strings.Builder
+	g := e.Gelesen
+	if g == nil {
+		fmt.Fprintf(&b, `<li><p><b>Nicht lesbar</b> <span class=k>%s</span></p></li>`, html.EscapeString(e.Fehler))
+		return b.String()
+	}
+	pruefen := len(g.Weg) + len(g.Abweichungen) // every value that says „prüfen“ has its line in Abweichungen
+	fmt.Fprintf(&b, `<li><p><time>%s</time> <b>%s</b>`, datumText(g.Datum), html.EscapeString(g.Titel))
+	if g.Art != "" {
+		b.WriteString(` <span class=k>· ` + html.EscapeString(g.Art) + `</span>`)
+	}
+	b.WriteString(`</p><p class=k>`)
+	switch len(g.Werte) {
+	case 0:
+		b.WriteString(`keine Werte gelesen`)
+	case 1:
+		b.WriteString(`1 Wert gelesen`)
+	default:
+		fmt.Fprintf(&b, `%d Werte gelesen`, len(g.Werte))
+	}
+	if pruefen > 0 {
+		fmt.Fprintf(&b, ` · <span class="marke pruefen">prüfen</span> %d %s`, pruefen, map[bool]string{true: "Stelle", false: "Stellen"}[pruefen == 1])
+	}
+	if g.Quelle == "bild" {
+		b.WriteString(` · aus dem Bild gelesen`)
+	}
+	if u := dokURL(g.Dokument, public); u != "" {
+		b.WriteString(` · <a href="` + u + `" title="Nur zu Hause im WLAN">in Paperless</a>`)
+	}
+	if g.Abschrift != "" {
+		fmt.Fprintf(&b, ` · <a href="/abschrift?dokument=%d&amp;person=%s">Abschrift</a>`, g.Dokument, html.EscapeString(person))
+	}
+	b.WriteString(`</p>`)
+	if len(g.Ereignisse) > 0 {
+		b.WriteString(`<ul class=ereignisse>`)
+		for _, ev := range g.Ereignisse {
+			fmt.Fprintf(&b, `<li><b>%s</b> %s</li>`, html.EscapeString(ev.Art), html.EscapeString(ev.Text))
+		}
+		b.WriteString(`</ul>`)
+	}
+	b.WriteString(`</li>`)
+	return b.String()
+}
+
+// befinden is the daily note: today's form, then the days.
+func (w *Web) befinden(rw http.ResponseWriter, r *http.Request) {
+	p, s, darf := w.wer(rw, r)
+	if p == nil {
+		return
+	}
+	tage, _ := w.Dienst.Speicher.Tage(p.Key)
+	fragen, _ := w.Dienst.Speicher.Fragen(p.Key)
+	heute := w.Dienst.now().Format("2006-01-02")
+	var b strings.Builder
 	b.WriteString(`<section><h2>Heute</h2>`)
 	var heutige *Tagesnotiz
 	for i := range tage {
@@ -150,126 +412,13 @@ func (w *Web) start(rw http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(&b, `<label class=frage><span>Eine Zeile zum Tag (optional)</span><input name=text maxlength=500 value="%s"></label>`, html.EscapeString(text))
 	b.WriteString(`<button>Notieren</button> <a class=k href="/fragen?person=` + html.EscapeString(p.Key) + `">Eigene Fragen</a></form></section>`)
-	// what changed last
-	b.WriteString(`<section><h2>Verlauf</h2>`)
-	if len(v.Werte) == 0 {
-		b.WriteString(`<p>Noch keine Werte. Sobald ein Laborblatt oder ein Befund in Paperless liegt (Scanner „Nur für mich“ oder Mail an das Dokumenten-Postfach mit Betreff „Arzt: …“), lese ich die Werte und zeichne sie hier ein.</p>`)
+	if len(tage) > 0 {
+		min, max := spanne(Verlauf{}, tage)
+		b.WriteString(`<section><h2>Deine Tage</h2><p class=k>Schlaf, Energie und Stimmung gemittelt, ein Punkt pro Tag, oben ist besser:</p>` + befindenBand(tage, min, max) + tageHTML(tage, fragen) + `</section>`)
 	} else {
-		b.WriteString(zuletzt(v.Werte))
-		b.WriteString(verlaufHTML(v, tage, w.Dienst.Public, p.Key))
+		b.WriteString(`<p class=k>Noch keine Tage notiert. Was du hier oder dem Boten sagst, steht dann als Verlauf hier.</p>`)
 	}
-	b.WriteString(`</section>`)
-	// days
-	if len(tage) > 0 {
-		b.WriteString(`<section><h2>Deine Tage</h2>` + tageHTML(tage, fragen) + `</section>`)
-	}
-	// open documents: anyone may take one as their own, an admin also for a child
-	{
-		offene := w.Dienst.Offene()
-		if len(offene) > 0 {
-			b.WriteString(`<section><h2>Für wen?</h2><p>Diese Befunde habe ich gelesen, aber niemandem zuordnen können.</p>`)
-			for _, e := range offene {
-				g := e.Gelesen
-				fmt.Fprintf(&b, `<form method=post action="/zuordnen" class=offen><input type=hidden name=dokument value="%d"><span>%s (%s, %d Werte, Patient „%s“)</span><select name=person>`, g.Dokument, html.EscapeString(g.Titel), g.Datum, len(g.Werte), html.EscapeString(g.Patient))
-				for _, d := range darf {
-					fmt.Fprintf(&b, `<option value="%s">%s</option>`, html.EscapeString(d.Key), html.EscapeString(d.Anzeige))
-				}
-				b.WriteString(`</select><button>Zuordnen</button></form>`)
-			}
-			b.WriteString(`</section>`)
-		}
-	}
-	fmt.Fprintf(&b, `<section class=k><p>%s</p><p><a href="/export.csv?person=%s">Als CSV herunterladen</a> · <form method=post action="/loeschen" class=inline onsubmit="return confirm('Alle Werte und Tagesnotizen von %s löschen? Die Dokumente bleiben in Paperless.')"><input type=hidden name=person value="%s"><button class=k>Verlauf löschen</button></form></p></section>`,
-		saysWerSieht, html.EscapeString(p.Key), html.EscapeString(p.Anzeige), html.EscapeString(p.Key))
-	seite(rw, 200, "Gesundheit · "+p.Anzeige, b.String())
-}
-
-// zuletzt is the line at the top: the values that changed most recently.
-func zuletzt(werte []Messwert) string {
-	byName := map[string][]Messwert{}
-	for _, m := range werte {
-		byName[m.Name] = append(byName[m.Name], m)
-	}
-	type delta struct {
-		name    string
-		von, zu Messwert
-	}
-	var ds []delta
-	for n, ms := range byName {
-		if len(ms) >= 2 {
-			ds = append(ds, delta{n, ms[len(ms)-2], ms[len(ms)-1]})
-		}
-	}
-	sort.Slice(ds, func(i, j int) bool { return ds[i].zu.Datum > ds[j].zu.Datum })
-	if len(ds) == 0 {
-		return ""
-	}
-	if len(ds) > 4 {
-		ds = ds[:4]
-	}
-	var parts []string
-	for _, d := range ds {
-		parts = append(parts, fmt.Sprintf("%s %s → %s %s seit %s", html.EscapeString(d.name), zahlText(d.von.Wert), zahlText(d.zu.Wert), html.EscapeString(d.zu.Einheit), datumText(d.von.Datum)))
-	}
-	return `<p class=zuletzt>Zuletzt verändert: ` + strings.Join(parts, " · ") + `</p>`
-}
-
-// verlaufHTML draws one row per value: name, sparkline with the reference
-// band, the last value; then the events.
-func verlaufHTML(v Verlauf, tage []Tagesnotiz, public, person string) string {
-	byName := map[string][]Messwert{}
-	for _, m := range v.Werte {
-		byName[m.Name] = append(byName[m.Name], m)
-	}
-	var names []string
-	for n := range byName {
-		names = append(names, n)
-	}
-	sort.Slice(names, func(i, j int) bool {
-		gi, gj := gruppenRang(byName[names[i]][0].Gruppe), gruppenRang(byName[names[j]][0].Gruppe)
-		if gi != gj {
-			return gi < gj
-		}
-		return names[i] < names[j]
-	})
-	min, max := spanne(v, tage)
-	var b strings.Builder
-	b.WriteString(`<table class=werte>`)
-	gruppe := ""
-	for _, n := range names {
-		ms := byName[n]
-		if g := ms[0].Gruppe; g != gruppe {
-			gruppe = g
-			fmt.Fprintf(&b, `<tr class=gruppe><th colspan=3>%s</th></tr>`, html.EscapeString(g))
-		}
-		last := ms[len(ms)-1]
-		neu := ""
-		if last.Neu {
-			neu = ` <span class=neu title="Dieser Name steht nicht im Wörterbuch; er wird so geführt, wie der Befund ihn schreibt.">neu</span>`
-		}
-		if last.Quelle == "bild" {
-			// #5: the transcript the value was read from, behind the value
-			neu += fmt.Sprintf(` <a class=neu href="/abschrift?dokument=%d&amp;person=%s" title="Der Text der Seite war zu schwach; der Wert ist aus dem Bild abgeschrieben.">aus dem Bild gelesen</a>`, last.Dokument, html.EscapeString(person))
-		}
-		if last.Pruefen {
-			neu += ` <span class=neu title="Der Text der Seite nennt eine andere Zahl als das Bild. Bitte im Dokument nachsehen.">prüfen</span>`
-		}
-		fmt.Fprintf(&b, `<tr><th>%s%s</th><td>%s</td><td class=wert>%s <span class=k>%s</span> %s</td></tr>`,
-			html.EscapeString(n), neu, sparkline(ms, min, max, public), zahlText(last.Wert), html.EscapeString(last.Einheit), lage(last))
-	}
-	b.WriteString(`</table>`)
-	if len(tage) > 0 {
-		b.WriteString(`<p class=k>Befinden (Schlaf, Energie, Stimmung) auf derselben Zeitachse:</p>` + befindenBand(tage, min, max))
-	}
-	if len(v.Ereignisse) > 0 {
-		b.WriteString(`<h3>Ereignisse</h3><ul class=ereignisse>`)
-		for i := len(v.Ereignisse) - 1; i >= 0; i-- {
-			e := v.Ereignisse[i]
-			fmt.Fprintf(&b, `<li><time>%s</time> <b>%s</b> %s %s</li>`, datumText(e.Datum), html.EscapeString(e.Art), html.EscapeString(e.Text), dokLink(e.Dokument, public))
-		}
-		b.WriteString(`</ul>`)
-	}
-	return b.String()
+	w.rahmen(rw, r, p, s, darf, "/befinden", "Wie es mir ging · "+p.Anzeige, b.String())
 }
 
 // spanne is the time axis: the first and last day of anything drawn.
@@ -310,82 +459,6 @@ func x(t string, min, max time.Time) float64 {
 		return 0
 	}
 	return 6 + (sparkW-12)*d.Sub(min).Hours()/max.Sub(min).Hours()
-}
-
-// sparkline draws one value's points, the laboratory's reference band
-// behind each point as the report gave it, and a line between the points.
-func sparkline(ms []Messwert, min, max time.Time, public string) string {
-	lo, hi := ms[0].Wert, ms[0].Wert
-	for _, m := range ms {
-		for _, v := range []*float64{&m.Wert, m.RefMin, m.RefMax} {
-			if v != nil {
-				if *v < lo {
-					lo = *v
-				}
-				if *v > hi {
-					hi = *v
-				}
-			}
-		}
-	}
-	if hi == lo {
-		hi, lo = hi+1, lo-1
-	}
-	pad := (hi - lo) * 0.15
-	lo, hi = lo-pad, hi+pad
-	y := func(v float64) float64 { return sparkH - 4 - (sparkH-8)*(v-lo)/(hi-lo) }
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class=spark viewBox="0 0 %g %g" width="%g" height="%g" role="img" aria-label="%d Punkte">`, sparkW, sparkH, sparkW, sparkH, len(ms))
-	// the reference band, per point: labs differ
-	for i, m := range ms {
-		if m.RefMin == nil && m.RefMax == nil {
-			continue
-		}
-		x0 := x(m.Datum, min, max) - 5
-		x1 := x0 + 10
-		if i+1 < len(ms) {
-			x1 = x(ms[i+1].Datum, min, max)
-		}
-		top, bottom := y(hi), y(lo)
-		if m.RefMax != nil {
-			top = y(*m.RefMax)
-		}
-		if m.RefMin != nil {
-			bottom = y(*m.RefMin)
-		}
-		fmt.Fprintf(&b, `<rect class=ref x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>`, x0, top, x1-x0, bottom-top)
-	}
-	var pts []string
-	for _, m := range ms {
-		pts = append(pts, fmt.Sprintf("%.1f,%.1f", x(m.Datum, min, max), y(m.Wert)))
-	}
-	if len(pts) > 1 {
-		fmt.Fprintf(&b, `<polyline points="%s"/>`, strings.Join(pts, " "))
-	}
-	for _, m := range ms {
-		cls := "punkt"
-		if (m.RefMin != nil && m.Wert < *m.RefMin) || (m.RefMax != nil && m.Wert > *m.RefMax) {
-			cls += " ausser"
-		}
-		title := fmt.Sprintf("%s: %s %s", datumText(m.Datum), zahlText(m.Wert), m.Einheit)
-		if m.RefMin != nil || m.RefMax != nil {
-			title += " (Referenz " + refText(m.RefMin, m.RefMax) + ")"
-		}
-		if m.Quelle == "bild" {
-			title += " · aus dem Bild gelesen"
-		}
-		if m.Pruefen {
-			title += " · prüfen"
-		}
-		href := dokURL(m.Dokument, public)
-		if href != "" {
-			fmt.Fprintf(&b, `<a href="%s"><circle class="%s" cx="%.1f" cy="%.1f" r="3.5"><title>%s</title></circle></a>`, href, cls, x(m.Datum, min, max), y(m.Wert), html.EscapeString(title))
-		} else {
-			fmt.Fprintf(&b, `<circle class="%s" cx="%.1f" cy="%.1f" r="3.5"><title>%s</title></circle>`, cls, x(m.Datum, min, max), y(m.Wert), html.EscapeString(title))
-		}
-	}
-	b.WriteString(`</svg>`)
-	return b.String()
 }
 
 // befindenBand is the daily note on the same axis: the mean of the 1–5
@@ -458,10 +531,10 @@ func (w *Web) tag(rw http.ResponseWriter, r *http.Request) {
 	}
 	n, err := tagesnotiz(w.Dienst, p.Key, r.PostFormValue("datum"), antworten, r.PostFormValue("text"), "seite")
 	if err != nil {
-		seite(rw, 400, "Nicht notiert", `<p>Das ging nicht: `+html.EscapeString(err.Error())+`.</p><p><a href="/?person=`+html.EscapeString(p.Key)+`">Zurück</a></p>`)
+		seite(rw, 400, "Nicht notiert", `<p>Das ging nicht: `+html.EscapeString(err.Error())+`.</p><p><a href="/befinden?person=`+html.EscapeString(p.Key)+`">Zurück</a></p>`)
 		return
 	}
-	http.Redirect(rw, r, "/?person="+p.Key+"&m="+urlQ("Notiert für "+datumText(n.Datum)+"."), http.StatusSeeOther)
+	http.Redirect(rw, r, "/befinden?person="+p.Key+"&m="+urlQ("Notiert für "+datumText(n.Datum)+"."), http.StatusSeeOther)
 }
 
 func (w *Web) fragen(rw http.ResponseWriter, r *http.Request) {
@@ -486,7 +559,7 @@ func (w *Web) fragen(rw http.ResponseWriter, r *http.Request) {
 			seite(rw, 400, "Nicht gespeichert", `<p>`+html.EscapeString(err.Error())+`</p>`)
 			return
 		}
-		http.Redirect(rw, r, "/?person="+p.Key+"&m="+urlQ(fmt.Sprintf("%d eigene Fragen gespeichert.", len(eigene))), http.StatusSeeOther)
+		http.Redirect(rw, r, "/befinden?person="+p.Key+"&m="+urlQ(fmt.Sprintf("%d eigene Fragen gespeichert.", len(eigene))), http.StatusSeeOther)
 		return
 	}
 	fragen, _ := w.Dienst.Speicher.Fragen(p.Key)
@@ -505,7 +578,7 @@ func (w *Web) fragen(rw http.ResponseWriter, r *http.Request) {
 	for i++; i <= MaxEigeneFragen; i++ {
 		fmt.Fprintf(&b, `<label class=frage><span>Frage %d</span><input name="text%d" maxlength=80 placeholder="leer lassen, wenn keine"><select name="skala%d"><option value=5>0–5</option><option value=10>0–10</option></select></label>`, i, i, i)
 	}
-	b.WriteString(`<button>Speichern</button> <a class=k href="/?person=` + html.EscapeString(p.Key) + `">Zurück</a></form>`)
+	b.WriteString(`<button>Speichern</button> <a class=k href="/befinden?person=` + html.EscapeString(p.Key) + `">Zurück</a></form>`)
 	seite(rw, 200, "Eigene Fragen · "+p.Anzeige, b.String())
 }
 
@@ -538,7 +611,7 @@ func (w *Web) zuordnen(rw http.ResponseWriter, r *http.Request) {
 		seite(rw, 400, "Nicht zugeordnet", `<p>`+html.EscapeString(err.Error())+`</p><p><a href="/">Zurück</a></p>`)
 		return
 	}
-	http.Redirect(rw, r, "/?person="+key+"&m="+urlQ("Befund zugeordnet; seine Werte sind jetzt im Verlauf."), http.StatusSeeOther)
+	http.Redirect(rw, r, "/befunde?person="+key+"&m="+urlQ("Befund zugeordnet; seine Werte stehen jetzt unter Werte."), http.StatusSeeOther)
 }
 
 // abschrift shows the transcript a document's values were read from, when
@@ -564,7 +637,7 @@ func (w *Web) abschrift(rw http.ResponseWriter, r *http.Request) {
 	if len(g.Abweichungen) > 0 {
 		b.WriteString(`<p>Bitte prüfen: ` + html.EscapeString(strings.Join(g.Abweichungen, "; ")) + `.</p>`)
 	}
-	b.WriteString(`<pre class=abschrift>` + html.EscapeString(g.Abschrift) + `</pre><p><a href="/?person=` + html.EscapeString(p.Key) + `">Zurück zum Verlauf</a></p>`)
+	b.WriteString(`<pre class=abschrift>` + html.EscapeString(g.Abschrift) + `</pre><p><a href="/befunde?person=` + html.EscapeString(p.Key) + `">Zurück zu den Befunden</a></p>`)
 	seite(rw, http.StatusOK, "Abschrift", b.String())
 }
 
@@ -603,7 +676,7 @@ func (w *Web) loeschen(rw http.ResponseWriter, r *http.Request) {
 		seite(rw, 500, "Nicht gelöscht", `<p>`+html.EscapeString(err.Error())+`</p>`)
 		return
 	}
-	http.Redirect(rw, r, "/?person="+p.Key+"&m="+urlQ("Verlauf gelöscht. Die Dokumente liegen weiter in Paperless; ein neuer Lauf liest sie nicht noch einmal."), http.StatusSeeOther)
+	http.Redirect(rw, r, "/werte?person="+p.Key+"&m="+urlQ("Verlauf gelöscht. Die Dokumente liegen weiter in Paperless; ein neuer Lauf liest sie nicht noch einmal."), http.StatusSeeOther)
 }
 
 // --- small helpers
@@ -627,16 +700,6 @@ func refText(lo, hi *float64) string {
 		return "> " + zahlText(*lo)
 	case hi != nil:
 		return "< " + zahlText(*hi)
-	}
-	return ""
-}
-
-func lage(m Messwert) string {
-	switch {
-	case m.RefMin != nil && m.Wert < *m.RefMin:
-		return `<span class=ausser title="unter dem Referenzbereich des Labors">▼</span>`
-	case m.RefMax != nil && m.Wert > *m.RefMax:
-		return `<span class=ausser title="über dem Referenzbereich des Labors">▲</span>`
 	}
 	return ""
 }
@@ -676,25 +739,39 @@ func seite(w http.ResponseWriter, code int, titel, body string) {
 }
 
 const css = `
-:root{--fg:#1d2730;--bg:#fff;--k:#6b7785;--line:#e3e8ee;--akzent:#2b6f8f;--ref:#dfeef4;--ausser:#b4432f;--ok:#2f7d4f}
-@media(prefers-color-scheme:dark){:root{--fg:#e7ecf0;--bg:#141a1f;--k:#97a3af;--line:#2a333c;--akzent:#7fb6d2;--ref:#1f3340;--ausser:#e0735f;--ok:#6cc08b}}
+:root{--fg:#1d2730;--bg:#fff;--k:#5f6b78;--line:#e3e8ee;--akzent:#2b6f8f;--ref:#dfeef4;--ausser:#b4432f;--ok:#2f7d4f;--flaeche:#f4f7f9}
+@media(prefers-color-scheme:dark){:root{--fg:#e7ecf0;--bg:#141a1f;--k:#a3aeb9;--line:#2a333c;--akzent:#7fb6d2;--ref:#1f3340;--ausser:#e88a77;--ok:#6cc08b;--flaeche:#1b232a}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif}
 header,main{max-width:760px;margin:0 auto;padding:0 16px}
-h1{font-size:1.3rem;margin:1rem 0}h1 a{color:inherit;text-decoration:none}h2{font-size:1.1rem;margin:1.6rem 0 .5rem}h3{font-size:1rem;margin:1.2rem 0 .4rem}
+h1{font-size:1.3rem;margin:1rem 0 .5rem}h1 a{color:inherit;text-decoration:none}h2{font-size:1.1rem;margin:1.6rem 0 .5rem}h3{font-size:1rem;margin:0 0 .2rem}
+a{color:var(--akzent)}
 .k{color:var(--k);font-size:.92rem}.ok{color:var(--ok)}.ausser{color:var(--ausser)}
+.seiten{display:flex;flex-wrap:wrap;gap:.3rem;margin:0 0 .8rem;padding-bottom:.6rem;border-bottom:1px solid var(--line)}
+.seiten a{padding:.35rem .7rem;border-radius:8px;color:inherit;text-decoration:none;font-size:.95rem}.seiten a[aria-current]{background:var(--akzent);color:var(--bg);font-weight:600}
 .personen a{display:inline-block;margin:0 .6rem .4rem 0;padding:.2rem .6rem;border:1px solid var(--line);border-radius:999px;color:inherit;text-decoration:none}.personen a.aktiv{border-color:var(--akzent);color:var(--akzent)}
+.hinweis{padding:.6rem .8rem;border-left:3px solid var(--akzent);background:var(--flaeche);border-radius:0 8px 8px 0}
 .frage{display:block;margin:.6rem 0}.frage>span:first-child{display:block;font-size:.95rem;margin-bottom:.2rem}.skala label{display:inline-block;margin-right:.5rem}
-input[type=text],input:not([type]),select{font:inherit;padding:.3rem .4rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:inherit;width:100%;max-width:420px}select{width:auto}
+input[type=text],input:not([type]),select,textarea{font:inherit;padding:.3rem .4rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:inherit;width:100%;max-width:420px;box-sizing:border-box}select{width:auto}
 button{font:inherit;padding:.4rem .9rem;border:1px solid var(--akzent);border-radius:8px;background:var(--akzent);color:#fff}button.k{background:none;color:var(--k);border-color:var(--line)}
 .inline{display:inline}
 table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.35rem .4rem;border-bottom:1px solid var(--line);vertical-align:middle}
-.werte th{width:30%;font-weight:500}.werte .gruppe th{color:var(--k);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;padding-top:1rem;border:0}.wert{white-space:nowrap}
-.spark{display:block;max-width:100%;height:44px}.spark .ref{fill:var(--ref)}.spark polyline{fill:none;stroke:var(--akzent);stroke-width:1.5}.spark .punkt{fill:var(--akzent)}.spark .punkt.ausser{fill:var(--ausser)}.befinden .punkt{fill:var(--ok)}
+.gruppe h2{color:var(--k);font-size:.85rem;text-transform:uppercase;letter-spacing:.04em;margin:1.4rem 0 .2rem}
+.zeile{padding:.7rem 0;border-bottom:1px solid var(--line)}.zeile p{margin:.15rem 0}
+.jetzt{font-size:1.1rem;font-weight:600}.status{font-weight:500}.status.ausser{color:var(--ausser)}
+.marke{font-size:.75rem;font-weight:400;color:var(--k);border:1px solid var(--line);border-radius:4px;padding:0 .3rem;text-decoration:none;white-space:nowrap}.marke.pruefen{color:var(--ausser);border-color:var(--ausser)}
+.was summary{cursor:pointer;color:var(--akzent);font-size:.92rem;margin-top:.2rem}.was p{margin:.3rem 0}
+.spark{display:block;width:100%;max-width:320px;height:auto;margin:.3rem 0}.spark .ref{fill:var(--ref)}.spark polyline{fill:none;stroke:var(--akzent);stroke-width:1.5}.spark .punkt{fill:var(--akzent)}.spark .punkt.ausser{fill:var(--ausser)}.spark .achse{stroke:var(--line)}.spark .jahr{fill:var(--k);font-size:10px}.befinden .punkt{fill:var(--ok)}
+.profil{margin:1.6rem 0;padding:.6rem .8rem;border:1px solid var(--line);border-radius:8px}.profil summary{cursor:pointer;font-weight:500}
 .abschrift{white-space:pre-wrap;font-size:.85rem;border:1px solid var(--line);border-radius:6px;padding:.75rem;overflow-x:auto}
-.neu{font-size:.75rem;color:var(--k);border:1px solid var(--line);border-radius:4px;padding:0 .3rem}
-.ereignisse{padding-left:1rem}.ereignisse time{color:var(--k);font-size:.9rem;margin-right:.3rem}
+.befunde{list-style:none;padding:0}.befunde>li{padding:.6rem 0;border-bottom:1px solid var(--line)}.befunde p{margin:.1rem 0}.befunde time{color:var(--k);margin-right:.3rem}
+.ereignisse{padding-left:1rem;margin:.3rem 0}
 .offen{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0}
-.zuletzt{padding:.6rem .8rem;border-left:3px solid var(--akzent);background:var(--ref);border-radius:0 8px 8px 0}
-.tage td,.tage th{font-size:.9rem}
-@media(max-width:480px){.werte th{width:38%}.spark{height:36px}}
+.tage td,.tage th{font-size:.9rem}.tage{display:block;overflow-x:auto}
+.arzt>li{margin:.6rem 0 1rem;break-inside:avoid}.arzt p{margin:.15rem 0}.frage-text{font-weight:600}.url{display:none}
+.antwort{border-bottom:1px solid var(--line);height:1.8rem}
+@media print{
+ :root{--fg:#000;--bg:#fff;--k:#333;--line:#999;--akzent:#000;--ausser:#000}
+ body{font-size:11pt}header,.seiten,.personen,.nicht-drucken,.ok{display:none}main{max-width:none;padding:0}
+ a{color:inherit;text-decoration:none}.url{display:inline;font-size:8pt;color:#333}
+}
 `

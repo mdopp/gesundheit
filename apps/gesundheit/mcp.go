@@ -220,6 +220,15 @@ func mcpTools(d *Dienst) []mcpTool {
 					if m.RefMin != nil || m.RefMax != nil {
 						fmt.Fprintf(&b, " (Referenz %s)", refText(m.RefMin, m.RefMax))
 					}
+					if m.LLN != nil {
+						fmt.Fprintf(&b, " (LLN %s)", zahlText(*m.LLN))
+					}
+					if s := sollText(m); s != "" {
+						b.WriteString(" (" + s + ")")
+					}
+					if m.Pruefen {
+						b.WriteString(" (unsicher gelesen, prüfen)")
+					}
 					b.WriteString("\n")
 				}
 				if b.Len() == 0 {

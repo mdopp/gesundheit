@@ -51,7 +51,15 @@ documents, this keeps what it read out of them, per person.
    every reading, a person's own notes stay) and carries the transcript;
    the page links it behind the value (`/abschrift`). Units are converted only where `woerterbuch.go` names the
    exact factor; a name the dictionary does not know is kept as the report
-   writes it and marked `neu`. Images are never interpreted: of an X-ray or
+   writes it and marked `neu`. A lung-function sheet's predicted value,
+   % predicted and LLN are kept with the value when their numbers stand in
+   its row (#10). A value says „prüfen“ when its unit is no unit („0,03 cal“)
+   or not one its analyte is given in („MVV 149,2 min“), or when its name is
+   one character off a known one („FIVV/FIVC“). Each record carries the
+   reader version that read it (`leserVersion`); raising it reads every
+   record again, after the new documents, at most 10 a run, keeping the
+   person it belonged to and replacing its values; the pages say „noch N
+   Befunde neu zu lesen“. Images are never interpreted: of an X-ray or
    MRT report only the written finding becomes an event.
 2. **Assigns.** The patient's name on the sheet against the household's
    people: Paperless' users (first and last name) and `KINDER`. One match →
@@ -59,11 +67,38 @@ documents, this keeps what it read out of them, per person.
    the program keeps its own view and change). No match → the document waits
    under „Für wen?“ on the page, with `prüfen`; a person assigns it to
    themselves or, as an admin, to a child.
-3. **Shows.** `/` is the viewer's own timeline (Remote-User through Caddy's
-   proxy secret, laib ADR 0012 §3): what changed last, one row per value
-   with a sparkline and the laboratory's reference band *of that report*,
-   the events, the daily notes on the same axis. An admin (`Remote-Groups`
-   has `ADMIN_GROUP`) also sees the children's; nobody sees another adult's.
+3. **Shows** (#10, owner 2026-10-30: a small group of pages, the same nav on
+   each; Haus links to these paths, keep them stable). `/` leads to `/werte`.
+   Remote-User through Caddy's proxy secret (laib ADR 0012 §3); an admin
+   (`Remote-Groups` has `ADMIN_GROUP`) also sees the children's pages, nobody
+   another adult's.
+   - **`/werte` „Werte“**: one row per value that reads at first sight: the
+     latest value with its month („5,29 l · Dez. 2023“); its status in words
+     against what *its* report prints — the range („im Normalbereich“ / „über
+     dem Bereich“ / „unter dem Bereich“), else the lower limit of normal
+     (LLN), else the predicted value as „84 % des Sollwerts“ (no boundary is
+     invented), else a range computed from the person's profile, said as
+     such, else „kein Bereich angegeben“; the change against the value of the
+     day before in words („vorher 5,41 l (2021) – kaum verändert“; under 5 %
+     is „kaum verändert“); a chart only from three days on, with its own
+     time axis, the years and the report's band. „Was ist das?“ behind each
+     row (`erklaerung.go`): a curated list of plain sentences, what the value
+     measures, no assessment, one per dictionary analyte; a name not on it
+     gets one sentence from the household model, once, marked, and an admin
+     can write the household's own (`POST /erklaerung`, for everyone). The
+     profile (`POST /profil`: Geburtsjahr, Geschlecht, Größe) is entered once,
+     seen by the person (a child's by the admins) and used only where the
+     report prints nothing; `sollFormeln` is empty on purpose — GLI-2012
+     needs its lookup tables, an approximation would print wrong numbers.
+   - **`/befunde` „Befunde“**: the person's documents, newest first: date,
+     title, values read, how many places say „prüfen“, the link to
+     Paperless and to the transcript (`/abschrift`), the events; „Für wen?“
+     for the documents no one was matched to.
+   - **`/befinden` „Wie es mir ging“**: today's note and the days.
+   - **`/arzt` „Für den Arzt“**: printable; the values outside their range on
+     their latest sheet, changes of more than 15 % or across the range, the
+     values read with doubt — each a question with value, date and source
+     document, no conclusion.
    `/export.csv`, `/loeschen` (the person's folder; the record stays, so the
    documents are not read again).
 4. **Asks.** The daily note: four base questions (sleep, energy, mood 1–5;
@@ -93,7 +128,9 @@ documents, this keeps what it read out of them, per person.
 | `LAUF_RUHE_S` (60), `LAUF_SPAETESTENS_S` (600), `LAUF_STUENDLICH_S` (3600) | the run's timing |
 
 **Store** (`/data`): `personen/<key>/{verlauf,tage,fragen}.json`,
-`record.json` (what each document yielded, and the last run),
+`personen/<key>/profil.json` (#10), `record.json` (what each document
+yielded with its reader version, and the last run), `erklaerungen.json` (the
+model's and the household's „Was ist das?“),
 `laib-status.json`. Plain JSON, written whole and renamed into place; a
 person's folder is theirs to export or delete.
 
