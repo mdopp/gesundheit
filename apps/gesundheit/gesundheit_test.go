@@ -30,6 +30,9 @@ type fakeDoc struct {
 	NoteBy  []int  // the user of each note; 0 is the program's own (4)
 	File    []byte // the original, for the image pass (#5)
 	Mime    string
+	Archiv  []byte // the archived PDF (OCRmyPDF's), for the snippet (#13)
+	Thumb   []byte // the page thumbnail, Paperless' WebP (#13)
+	Geholt  int    // how often the archive or thumbnail was fetched
 }
 
 type fakePaperless struct {
@@ -155,12 +158,29 @@ func (f *fakePaperless) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, "/download/"):
 		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
 		d := f.docs[id]
-		if d == nil || d.File == nil || r.URL.Query().Get("original") != "true" {
+		if d != nil && r.URL.Query().Get("original") != "true" && d.Archiv != nil {
+			// without original=true Paperless sends the archived version (#13)
+			d.Geholt++
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write(d.Archiv)
+			return
+		}
+		if d == nil || d.File == nil {
 			http.Error(w, "keine Datei", 404)
 			return
 		}
 		w.Header().Set("Content-Type", d.Mime)
 		w.Write(d.File)
+	case strings.HasSuffix(p, "/thumb/"):
+		id, _ := strconv.Atoi(strings.Split(strings.TrimPrefix(p, "/api/documents/"), "/")[0])
+		d := f.docs[id]
+		if d == nil || d.Thumb == nil {
+			http.Error(w, "kein Vorschaubild", 404)
+			return
+		}
+		d.Geholt++
+		w.Header().Set("Content-Type", "image/webp")
+		w.Write(d.Thumb)
 	case strings.HasPrefix(p, "/api/documents/"):
 		id, _ := strconv.Atoi(strings.Trim(strings.TrimPrefix(p, "/api/documents/"), "/"))
 		d := f.docs[id]

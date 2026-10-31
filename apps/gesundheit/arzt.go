@@ -127,11 +127,16 @@ func (w *Web) arzt(rw http.ResponseWriter, r *http.Request) {
 		}
 		return "Dokument " + strconv.Itoa(doc)
 	}
+	if r.FormValue("alle") == "" {
+		// #13: short, per examination; the long list is one link away
+		w.rahmen(rw, r, p, s, darf, "/arzt", "Für den Arzt · "+p.Anzeige, arztKurzHTML(arztKurz(v, rec, &pr), p, s, w.Dienst.now()))
+		return
+	}
 	fragen := arztFragen(v, &pr)
 	var b strings.Builder
-	fmt.Fprintf(&b, `<h2>Fragen an den Arzt <span class=k>· %s · Stand %s</span></h2>`, html.EscapeString(p.Anzeige), datumText(w.Dienst.now().Format("2006-01-02")))
+	fmt.Fprintf(&b, `<h2>Fragen an den Arzt: alle Einzelwerte <span class=k>· %s · Stand %s</span></h2>`, html.EscapeString(p.Anzeige), datumText(w.Dienst.now().Format("2006-01-02")))
 	b.WriteString(`<p class=k>Aus deinen Befunden zusammengestellt, so wie die Werte dort stehen. Die Seite bewertet nichts; die Fragen sind Vorschläge für das Gespräch.</p>`)
-	b.WriteString(`<p class=nicht-drucken><button type=button onclick="window.print()">Drucken</button></p>`)
+	fmt.Fprintf(&b, `<p class=nicht-drucken><button type=button onclick="window.print()">Drucken</button> · <a href="/arzt%s">Kurzfassung je Untersuchung</a></p>`, html.EscapeString(mitPerson(p, s)))
 	abschnitte := []struct{ art, titel, leer string }{
 		{"ausser", "Werte außerhalb ihres Bereichs (letzte Messung)", ""},
 		{"aenderung", fmt.Sprintf("Veränderungen um mehr als %s %% oder über den Bereich hinweg", zahlText(deutlichSchwelle*100)), ""},

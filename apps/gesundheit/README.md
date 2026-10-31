@@ -95,10 +95,57 @@ documents, this keeps what it read out of them, per person.
      Paperless and to the transcript (`/abschrift`), the events; „Für wen?“
      for the documents no one was matched to.
    - **`/befinden` „Wie es mir ging“**: today's note and the days.
-   - **`/arzt` „Für den Arzt“**: printable; the values outside their range on
-     their latest sheet, changes of more than 15 % or across the range, the
-     values read with doubt — each a question with value, date and source
-     document, no conclusion.
+   - **`/arzt` „Für den Arzt“** (#13, owner 2026-10-31: „fass es kürzer …
+     als Werte zwischen zwei Tests“): printable, one sheet. Values grouped by
+     examination (`untersuchungen` in `arzt_kurz.go`: lung function,
+     spiroergometry, blood pressure, blood count, thyroid, serology …; a lab
+     value by its dictionary group, any other by what its document examined:
+     its title's words, else most of its values — a spiroergometry's resting
+     SpO2 stays with it). Per group the two latest examination days compared:
+     at most 5 values, across the range first, then changes over 15 %, then
+     the group's leading values; a day with several values of one name (a
+     lung-function day: several sheets, a value per attempt) gives the middle
+     one in the unit both days share, values read with doubt only when there
+     is no other; a value in two units is said, not compared; a value only on
+     the later day that stands outside its report's range is listed. Then one
+     or two neutral questions on the whole („FEV1 und FVC sind beide gesunken
+     – was bedeutet das zusammen?“), checked against `urteil` (the
+     explanations' guard, extended: no direction that judges, no alarm, no
+     therapy). Groups examined once and values of no group: „Außerdem“, at
+     most 6 lines. `/arzt?alle=1` „alle Einzelwerte“ is the long list of #10:
+     the values outside their range on their latest sheet, changes of more
+     than 15 % or across the range, the values read with doubt — each a
+     question with value, date and source document, no conclusion.
+   - **Correcting a value** (#13, owner 2026-10-31: „warum gibst du mir
+     nicht die Gelegenheit, den Wert zu korrigieren? Evtl. sogar mit
+     Bildschnipsel daneben“): every row of `/werte` (its latest value) and
+     every value of a document on `/befunde` has „Korrigieren“ (opened by
+     itself where a document still says „prüfen“): value, unit, date; „Stimmt
+     so“; „Gehört nicht dazu“; „Wie gelesen“/„zurücknehmen“ takes it back.
+     `POST /korrektur`, by the person, an admin for a child (the pages' own
+     rule, `wer`). The word is kept in the person's `korrekturen.json`, apart
+     from what the reader writes, and laid over the timeline whenever it is
+     read (`Speicher.Verlauf`): a reader of a later `leserVersion` replaces
+     its values and never the person's. A value is named by its document,
+     name, day and place among that name's values on the sheet; a re-read
+     that names it otherwise finds it by document, day, number and unit, and
+     a re-read that lost it keeps the person's value while the document is
+     the person's. Shown as „von dir korrigiert“ („von ben …“ to another
+     admin) with what was read; the Bote's `gesundheit_verlauf` says „von
+     Hand korrigiert“; a dropped value is on no page but its document's list.
+     Next to the form, loaded when it is opened: **the snippet** (`GET
+     /schnipsel`, `schnipsel.go`, `pdf.go`) — Paperless' archived PDF
+     (OCRmyPDF's: the scan plus its invisible text layer), read in Go
+     (no poppler in the distroless image; object streams, form XObjects,
+     Type0/Identity-H and simple fonts, ToUnicode, Flate): the number's word
+     with the value's name on the same line (a sheet carries a number more
+     than once), the reader's words (`beleg`, kept since #13) making a line
+     count more; the page image's band around it, the page's full width, two
+     and a half lines of margin, the words framed. No position (a born-digital
+     page without a picture, JBIG2, a converted unit, a first reader's
+     record): Paperless' thumbnail. Beside it always the words the value was
+     read from, its number marked. Fetched for the person only, sent
+     `private, no-store`, never written to `/data` or anywhere else.
    `/export.csv`, `/loeschen` (the person's folder; the record stays, so the
    documents are not read again).
 4. **Asks.** The daily note: four base questions (sleep, energy, mood 1–5;
@@ -128,7 +175,8 @@ documents, this keeps what it read out of them, per person.
 | `LAUF_RUHE_S` (60), `LAUF_SPAETESTENS_S` (600), `LAUF_STUENDLICH_S` (3600) | the run's timing |
 
 **Store** (`/data`): `personen/<key>/{verlauf,tage,fragen}.json`,
-`personen/<key>/profil.json` (#10), `record.json` (what each document
+`personen/<key>/profil.json` (#10), `personen/<key>/korrekturen.json` (#13:
+the person's word on their values, never written by the reader), `record.json` (what each document
 yielded with its reader version, and the last run), `erklaerungen.json` (the
 model's and the household's „Was ist das?“),
 `laib-status.json`. Plain JSON, written whole and renamed into place; a

@@ -475,6 +475,7 @@ func TestTheRowReadsAtFirstSight(t *testing.T) {
 
 // --- „Fragen an den Arzt“
 
+// The long list (#10), one link behind the short page since #13.
 func TestTheDoctorsPage(t *testing.T) {
 	d, pl, _ := aufbau(t)
 	pl.docs[5] = &fakeDoc{ID: 5, Title: "Labor März", Content: laborAnna, Created: "2026-03-13", Type: 7}
@@ -487,7 +488,7 @@ func TestTheDoctorsPage(t *testing.T) {
 	d.Speicher.Merken("41", &Eintrag{At: time.Now(), Person: "anna", Gelesen: &g, Leser: leserVersion})
 	_ = v
 	h := (&Web{Dienst: d, Secret: "s3cret", Admins: "admins"}).Handler()
-	rec := rufe(t, h, "GET", "/arzt", als("anna"), "")
+	rec := rufe(t, h, "GET", "/arzt?alle=1", als("anna"), "")
 	body := rec.Body.String()
 	if rec.Code != 200 {
 		t.Fatalf("%d %s", rec.Code, body)
@@ -509,7 +510,7 @@ func TestTheDoctorsPage(t *testing.T) {
 	// a value outside its range on its latest sheet
 	d.Speicher.Eintragen("anna", Gelesen{Dokument: 42, Titel: "Labor Okt", Werte: []Messwert{{Name: "Hämoglobin", Wert: 11.2, Einheit: "g/dl", Datum: "2026-10-01", Dokument: 42, Gruppe: "Blutbild", RefMin: zf(12), RefMax: zf(16)}}})
 	d.Speicher.Merken("42", &Eintrag{At: time.Now(), Person: "anna", Gelesen: &Gelesen{Dokument: 42, Titel: "Labor Okt"}, Leser: leserVersion})
-	body = rufe(t, h, "GET", "/arzt", als("anna"), "").Body.String()
+	body = rufe(t, h, "GET", "/arzt?alle=1", als("anna"), "").Body.String()
 	if !strings.Contains(body, "Hämoglobin: 11,2 g/dl am 01.10.2026 – laut Befund unter dem Bereich (12–16 g/dl)") || !strings.Contains(body, "Labor Okt") {
 		t.Fatalf("outside: %s", body)
 	}
@@ -517,11 +518,11 @@ func TestTheDoctorsPage(t *testing.T) {
 		t.Fatalf("the page draws a conclusion: %s", bewertung.FindString(textOhneTags(body)))
 	}
 	// nobody else's
-	if rec := rufe(t, h, "GET", "/arzt?person=anna", als("ben", "admins"), ""); rec.Code != 403 || strings.Contains(rec.Body.String(), "Ferritin") {
+	if rec := rufe(t, h, "GET", "/arzt?alle=1&person=anna", als("ben", "admins"), ""); rec.Code != 403 || strings.Contains(rec.Body.String(), "Ferritin") {
 		t.Fatalf("ben: %d", rec.Code)
 	}
 	// nothing to ask: the page says so
-	body = rufe(t, h, "GET", "/arzt", als("ben"), "").Body.String()
+	body = rufe(t, h, "GET", "/arzt?alle=1", als("ben"), "").Body.String()
 	if !strings.Contains(body, "Nichts außerhalb") {
 		t.Fatalf("empty: %s", body)
 	}

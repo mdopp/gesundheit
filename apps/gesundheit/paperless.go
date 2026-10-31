@@ -229,7 +229,24 @@ func notizVon(raw json.RawMessage) int {
 // Original is the file as it came in (the scanner's PDF or photo), with its
 // type: the page images the image preset reads (#5). At most 128 MB.
 func (p *Paperless) Original(ctx context.Context, id int) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(p.URL, "/")+fmt.Sprintf("/api/documents/%d/download/?original=true", id), nil)
+	return p.datei(ctx, fmt.Sprintf("/api/documents/%d/download/?original=true", id), 128<<20)
+}
+
+// Archiv is the archived version (#13): the PDF OCRmyPDF made, the scan
+// with its text layer, whose word boxes say where a value stands; a
+// document without one comes as its original. At most 64 MB.
+func (p *Paperless) Archiv(ctx context.Context, id int) ([]byte, string, error) {
+	return p.datei(ctx, fmt.Sprintf("/api/documents/%d/download/", id), 64<<20)
+}
+
+// Vorschau is Paperless' thumbnail of the first page (WebP), the snippet
+// when the words are not found (#13).
+func (p *Paperless) Vorschau(ctx context.Context, id int) ([]byte, string, error) {
+	return p.datei(ctx, fmt.Sprintf("/api/documents/%d/thumb/", id), 8<<20)
+}
+
+func (p *Paperless) datei(ctx context.Context, path string, limit int64) ([]byte, string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(p.URL, "/")+path, nil)
 	if err != nil {
 		return nil, "", &Fehler{Err: err}
 	}
@@ -246,7 +263,7 @@ func (p *Paperless) Original(ctx context.Context, id int) ([]byte, string, error
 	if resp.StatusCode >= 300 {
 		return nil, "", &Fehler{Code: resp.StatusCode}
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 128<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
 		return nil, "", &Fehler{Err: err}
 	}

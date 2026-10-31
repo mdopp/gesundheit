@@ -232,13 +232,22 @@ func (s *Speicher) LaufMerken(l Lauf) error {
 	return s.schreiben(filepath.Join(s.Dir, "record.json"), r)
 }
 
-// Verlauf reads a person's values and events.
+// Verlauf reads a person's values and events, with the person's own
+// corrections applied (#13): a dropped value is not in it.
 func (s *Speicher) Verlauf(key string) (Verlauf, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var v Verlauf
-	err := s.lesen(s.person(key, "verlauf.json"), &v)
-	return v, err
+	v, ws, err := s.alleWerte(key)
+	if err != nil {
+		return v, err
+	}
+	v.Werte = nil
+	for _, w := range ws {
+		if !w.Weg {
+			v.Werte = append(v.Werte, w.Messwert)
+		}
+	}
+	return v, nil
 }
 
 // Eintragen adds a document's values and events to a person, replacing
