@@ -273,7 +273,7 @@ func TestSparseValuesRenderOnEveryPage(t *testing.T) {
 	d.Speicher.Merken("60", &Eintrag{At: time.Now(), Person: "anna", Gelesen: &Gelesen{Dokument: 60}, Leser: leserVersion}) // a record without title, art or date
 	d.Speicher.Merken("61", &Eintrag{At: time.Now(), Person: "anna", Fehler: "nicht lesbar"})
 	h := (&Web{Dienst: d, Secret: "s3cret", Admins: "admins"}).Handler()
-	for _, pfad := range []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1", "/befinden", "/export.csv"} {
+	for _, pfad := range []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1", "/befinden", "/export.csv", "/gesamtbild"} {
 		if rec := rufe(t, h, "GET", pfad, als("anna"), ""); rec.Code != 200 {
 			t.Errorf("%s: %d", pfad, rec.Code)
 		}
@@ -287,7 +287,7 @@ func TestSparseValuesRenderOnEveryPage(t *testing.T) {
 			t.Errorf("correct %s: %d %s", w.Name, rec.Code, rec.Body.String())
 		}
 	}
-	for _, pfad := range []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1"} {
+	for _, pfad := range []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1", "/gesamtbild"} {
 		if rec := rufe(t, h, "GET", pfad, als("anna"), ""); rec.Code != 200 {
 			t.Errorf("after the corrections %s: %d", pfad, rec.Code)
 		}

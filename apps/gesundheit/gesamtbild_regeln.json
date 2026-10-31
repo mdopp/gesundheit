@@ -1,0 +1,367 @@
+{
+  "_lies_mich": [
+    "The rule table of /gesamtbild (#17): what a pattern in a person's values can mean in general, from established guidelines and consensus statements, one source per rule. Data, not code: gesamtbild.go only evaluates it.",
+    "A rule fires only on values read without doubt, confirmed or corrected (never on „prüfen“ or an unconfirmed „vermutlich“). State conditions (lage, unter/ab, soll_unter, minus) are judged on one examination day: the latest day of the rule's first named value, and every value of that day must agree. Trend conditions (richtung, gleichauf_mit, staerker_gesunken_als) compare the first and the last day a value was measured (a pair: the days both were).",
+    "lage: unter | ueber | im — against the range or lower limit the value's own report prints, never one invented here. unter/ab: a fixed number in one of einheiten (\"ml/min*\" is a prefix; \"\" a value without unit); the dictionary's exact factors convert into the first unit. soll_unter: % of the predicted value the report prints. minus: the difference of two values of the same day. richtung: gesunken | gestiegen | kaum verändert (under 5 %), um_ab/um_unter on the relative change. gleichauf_mit: the two changed by about the same share (abstand, default 0.05); staerker_gesunken_als: this one sank by at least abstand more.",
+    "plausibel: what a body can measure at all, generous bounds per value and unit — not a range, no judgement. A value outside (FEV1/FVC 0 %, a Peak-Flow of 4620 l/min) is an unflagged misread: it is left out of every course and pattern and listed as to confirm, until the person confirms or corrects it.",
+    "fuer: the profile the rule needs (geschlecht, alter_ab at the examination day). bedeutung_ab_alter: a sentence added from that age on. Every text is general (never about the person, no diagnosis, no advice) and passes the guard `urteil` in arzt_kurz.go; tests enforce it."
+  ],
+  "plausibel": [
+    {"wert": "FEV1", "einheiten": ["l"], "von": 0.1, "bis": 8},
+    {"wert": "FVC", "einheiten": ["l"], "von": 0.1, "bis": 8.5},
+    {"wert": "FEV1/FVC", "einheiten": ["%"], "von": 20, "bis": 100},
+    {"wert": "Peak-Flow", "einheiten": ["l/min"], "von": 30, "bis": 1000},
+    {"wert": "FEF25", "einheiten": ["l/s"], "von": 0.05, "bis": 15},
+    {"wert": "FEF50", "einheiten": ["l/s"], "von": 0.05, "bis": 10},
+    {"wert": "FEF75", "einheiten": ["l/s"], "von": 0.02, "bis": 8},
+    {"wert": "FEF25-75", "einheiten": ["l/s"], "von": 0.02, "bis": 10},
+    {"wert": "SpO2", "einheiten": ["%"], "von": 50, "bis": 100},
+    {"wert": "SpO2 in Ruhe", "einheiten": ["%"], "von": 50, "bis": 100},
+    {"wert": "SpO2 bei Belastungsende", "einheiten": ["%"], "von": 50, "bis": 100},
+    {"wert": "Atemreserve", "einheiten": ["%"], "von": 0, "bis": 100},
+    {"wert": "Maximale Sauerstoffaufnahme", "einheiten": ["ml/min/kg"], "von": 3, "bis": 95},
+    {"wert": "VE/VCO2-Slope", "einheiten": [""], "von": 10, "bis": 90},
+    {"wert": "Maximaler RER", "einheiten": [""], "von": 0.6, "bis": 2},
+    {"wert": "Hämoglobin", "einheiten": ["g/dl"], "von": 2, "bis": 26},
+    {"wert": "Hämatokrit", "einheiten": ["%"], "von": 8, "bis": 75},
+    {"wert": "MCV", "einheiten": ["fl"], "von": 40, "bis": 160},
+    {"wert": "TSH", "einheiten": ["mU/l", "µU/ml", "uU/ml", "mIU/l", "µIU/ml"], "von": 0.001, "bis": 500},
+    {"wert": "fT4", "einheiten": ["ng/dl"], "von": 0.05, "bis": 12},
+    {"wert": "fT3", "einheiten": ["pg/ml"], "von": 0.3, "bis": 40},
+    {"wert": "Blutdruck systolisch", "einheiten": ["mmHg"], "von": 50, "bis": 300},
+    {"wert": "Blutdruck diastolisch", "einheiten": ["mmHg"], "von": 20, "bis": 200},
+    {"wert": "Puls", "einheiten": ["/min", "1/min", "/Minute", "bpm"], "von": 20, "bis": 250},
+    {"wert": "HbA1c", "einheiten": ["%"], "von": 3, "bis": 20},
+    {"wert": "GFR", "einheiten": ["ml/min*"], "von": 1, "bis": 250},
+    {"wert": "Anti-HBs", "einheiten": ["IU/l", "mIU/ml", "IE/l", "mIE/ml", "U/l", "mU/ml"], "von": 0, "bis": 1000000}
+  ],
+  "systeme": [
+    {
+      "id": "lunge",
+      "name": "Lunge und Atmung",
+      "gruppen": ["Lunge"],
+      "leit": ["FEV1", "FVC", "FEV1/FVC", "Peak-Flow"],
+      "gemeinsam": [["FEV1", "FVC", "FEV1/FVC"]],
+      "frage": "Wie sind meine Lungenfunktionswerte über die Jahre zusammen zu sehen?"
+    },
+    {
+      "id": "belastung",
+      "name": "Belastbarkeit (Spiroergometrie)",
+      "gruppen": ["Belastung"],
+      "leit": ["Maximale Sauerstoffaufnahme", "Maximale Belastung", "Sauerstoffpuls", "Maximale Herzfrequenz", "VE/VCO2-Slope", "Atemreserve"],
+      "gemeinsam": [["Maximale Sauerstoffaufnahme", "Sauerstoffpuls", "Maximale Belastung", "Maximale Herzfrequenz"]],
+      "frage": "Was begrenzt meine Belastbarkeit in diesem Test, und wie passt das zu den anderen Werten?"
+    },
+    {
+      "id": "blutbild",
+      "name": "Blutbild",
+      "gruppen": ["Blutbild"],
+      "leit": ["Hämoglobin", "Hämatokrit", "Erythrozyten", "MCV", "MCH", "Leukozyten", "Thrombozyten"],
+      "gemeinsam": [["Hämoglobin", "Hämatokrit", "Erythrozyten", "MCV", "MCH"]],
+      "frage": "Wie ist mein Blutbild über die Untersuchungen zusammen zu sehen?"
+    },
+    {
+      "id": "schilddruese",
+      "name": "Schilddrüse",
+      "gruppen": ["Schilddrüse"],
+      "leit": ["TSH", "fT4", "fT3"],
+      "gemeinsam": [["TSH", "fT4", "fT3"]],
+      "frage": "Wie sind TSH, fT4 und fT3 bei mir zusammen zu sehen?"
+    },
+    {
+      "id": "kreislauf",
+      "name": "Herz-Kreislauf und Blutdruck",
+      "gruppen": ["Kreislauf"],
+      "leit": ["Blutdruck systolisch", "Blutdruck diastolisch", "Puls"],
+      "gemeinsam": [["Blutdruck systolisch", "Blutdruck diastolisch", "Puls"]],
+      "frage": "Wie sind meine Blutdruckwerte einzuordnen, und unter welchen Bedingungen wurden sie gemessen?"
+    },
+    {
+      "id": "stoffwechsel",
+      "name": "Leber, Niere und Stoffwechsel",
+      "gruppen": ["Stoffwechsel", "Niere", "Leber", "Salze", "Vitamine"],
+      "leit": ["HbA1c", "Glukose", "Kreatinin", "GFR", "GOT", "GPT", "Gamma-GT", "LDL", "HDL", "Cholesterin"],
+      "gemeinsam": [["Kreatinin", "GFR"], ["GOT", "GPT", "Gamma-GT"], ["Glukose", "HbA1c"], ["Cholesterin", "LDL", "HDL", "Triglyceride"]],
+      "frage": "Wie sind meine Leber-, Nieren- und Stoffwechselwerte zusammen zu sehen?"
+    },
+    {
+      "id": "infektionen",
+      "name": "Infektionen und Abwehr",
+      "gruppen": ["Infektionen", "Entzündung"],
+      "leit": ["CRP", "BSG", "Anti-HBs", "HBsAg", "Anti-HIV", "Lues-Suchtest"],
+      "gemeinsam": [["CRP", "BSG", "Leukozyten"]],
+      "frage": "Was sagen meine Infektions- und Entzündungswerte zusammen?"
+    }
+  ],
+  "regeln": [
+    {
+      "id": "lunge-obstruktiv",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1/FVC", "lage": "unter"}],
+      "bedeutung": "Liegt das Verhältnis FEV1/FVC unter dem unteren Grenzwert, den der Befund nennt, beschreiben ATS und ERS das als obstruktives Muster: Beim kräftigen Ausatmen kommt die Luft im Verhältnis zur ausgeatmeten Menge langsamer heraus, wie es bei verengten Atemwegen geschieht. Woher es kommt und ob es sich nach einem atemwegserweiternden Spray zurückbildet, klärt nur eine ärztliche Untersuchung.",
+      "frage": "Mein FEV1/FVC liegt unter dem Grenzwert des Befunds – was zeigt dieses obstruktive Muster bei mir, und wie lässt es sich weiter klären?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 · Stanojevic S et al.: ERS/ATS technical standard on interpretive strategies for routine lung function tests. Eur Respir J 2022;60:2101499"
+    },
+    {
+      "id": "lunge-feste-grenze-70",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1/FVC", "unter": 70, "einheiten": ["%"]}],
+      "bedeutung": "Die feste Grenze von 70 % für FEV1/FVC stammt aus der COPD-Strategie GOLD; dort gilt sie für eine Messung nach einem atemwegserweiternden Spray. Liegt das Verhältnis darunter, spricht das allgemein für verengte Atemwege. Die Lungenfunktionsstandards von ERS und ATS vergleichen das Verhältnis lieber mit dem altersbezogenen unteren Grenzwert (LLN) als mit einer festen Zahl.",
+      "bedeutung_ab_alter": {"ab": 60, "text": "Das Verhältnis wird mit den Jahren von selbst kleiner; bei Älteren liegt es deshalb öfter unter 70 %, ohne dass die Atemwege verengt sind – genau dafür nehmen ERS und ATS den altersbezogenen Grenzwert."},
+      "frage": "FEV1/FVC liegt unter 70 % – wie liegt es gegenüber dem altersbezogenen Grenzwert, und wurde vor oder nach einem Spray gemessen?",
+      "quelle": "Global Initiative for Chronic Obstructive Lung Disease (GOLD): Global Strategy for the Diagnosis, Management, and Prevention of COPD, Report 2024 · Stanojevic S et al.: ERS/ATS technical standard on interpretive strategies for routine lung function tests. Eur Respir J 2022;60:2101499"
+    },
+    {
+      "id": "lunge-restriktion-moeglich",
+      "system": "lunge",
+      "wenn": [{"wert": "FVC", "lage": "unter"}, {"wert": "FEV1/FVC", "lage": "im"}],
+      "bedeutung": "Ist FVC unter dem unteren Grenzwert und das Verhältnis FEV1/FVC im Bereich, kann das allgemein auf ein kleineres Lungenvolumen hinweisen (ein mögliches restriktives Muster) – oder darauf, dass nicht ganz ausgeatmet wurde. ERS und ATS nennen das Bild deshalb nur „möglich restriktiv“: Ob das Lungenvolumen wirklich kleiner ist, zeigt erst eine Messung des ganzen Lungenvolumens (Bodyplethysmographie); die Spirometrie allein entscheidet es nicht.",
+      "frage": "FVC liegt unter dem Grenzwert, das Verhältnis FEV1/FVC nicht – ist eine Messung des ganzen Lungenvolumens sinnvoll?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 · Stanojevic S et al.: ERS/ATS technical standard on interpretive strategies for routine lung function tests. Eur Respir J 2022;60:2101499"
+    },
+    {
+      "id": "lunge-gemeinsam-gesunken",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1", "richtung": "gesunken"}, {"wert": "FVC", "richtung": "gesunken"}, {"wert": "FEV1", "gleichauf_mit": "FVC"}],
+      "bedeutung": "Sinken FEV1 und FVC um ähnlich viel, bleibt ihr Verhältnis etwa gleich. Nach den Auslegungsregeln von ATS und ERS passt das allgemein eher zu einem kleineren ausgeatmeten Volumen – etwa weil nicht ganz ausgeatmet wurde oder das Lungenvolumen kleiner ist – als zu enger werdenden Atemwegen, bei denen vor allem FEV1 und damit das Verhältnis sinkt. Was davon zutrifft, klärt nur eine ärztliche Untersuchung.",
+      "frage": "FEV1 und FVC sind um ähnlich viel gesunken, ihr Verhältnis kaum – was zeigt das über Lungenvolumen und Atemwege?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968"
+    },
+    {
+      "id": "lunge-fev1-staerker-gesunken",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1", "richtung": "gesunken"}, {"wert": "FEV1", "staerker_gesunken_als": "FVC"}],
+      "bedeutung": "Sinkt FEV1 um mehr als FVC, wird das Verhältnis FEV1/FVC kleiner. Das ist allgemein die Richtung, in die sich Messungen bei enger werdenden Atemwegen bewegen (obstruktives Muster). Ob die Grenze dafür erreicht ist, zeigt der Vergleich des Verhältnisses mit dem unteren Grenzwert (LLN) des Befunds.",
+      "frage": "FEV1 ist stärker gesunken als FVC – wie steht mein FEV1/FVC heute zu seinem unteren Grenzwert?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 · Stanojevic S et al.: ERS/ATS technical standard on interpretive strategies for routine lung function tests. Eur Respir J 2022;60:2101499"
+    },
+    {
+      "id": "lunge-mittelfluesse-allein",
+      "system": "lunge",
+      "wenn": [{"einer_von": ["FEF25-75", "FEF50", "FEF75"], "lage": "unter"}, {"wert": "FEV1/FVC", "lage": "im"}],
+      "bedeutung": "Die Flusswerte in der Mitte und am Ende des Ausatmens (FEF25-75, FEF50, FEF75) schwanken von Messung zu Messung stark. Liegt FEV1/FVC im Bereich, lesen die Standards von ATS und ERS einen niedrigen Mittelfluss allein nicht als Zeichen verengter kleiner Atemwege.",
+      "frage": "Einzelne Flusswerte liegen unter ihrem Grenzwert, FEV1/FVC nicht – haben sie bei mir eine eigene Bedeutung?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 · Stanojevic S et al.: ERS/ATS technical standard on interpretive strategies for routine lung function tests. Eur Respir J 2022;60:2101499"
+    },
+    {
+      "id": "lunge-fev1-innerhalb-schwankung",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1", "um_unter": 0.15}],
+      "bedeutung": "FEV1 schwankt zwischen zwei Messungen auch mit der Mitarbeit, der Tageszeit und dem Gerät. Nach ATS und ERS liegt bei Erwachsenen erst eine Änderung ab etwa 15 % von Jahr zu Jahr sicher über dieser Schwankung; kleinere Änderungen sagen allein wenig, ihr Verlauf über mehrere Messungen mehr.",
+      "frage": "Liegt die Änderung meines FEV1 innerhalb der üblichen Messschwankung?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 (Abschnitt zu Änderungen über die Zeit)"
+    },
+    {
+      "id": "lunge-fev1-ueber-schwankung",
+      "system": "lunge",
+      "wenn": [{"wert": "FEV1", "um_ab": 0.15}],
+      "bedeutung": "Eine Änderung des FEV1 ab etwa 15 % liegt nach ATS und ERS bei Erwachsenen über der üblichen Messschwankung von Jahr zu Jahr. Was sie bedeutet, hängt vom ganzen Bild ab: von FVC und dem Verhältnis FEV1/FVC, von den Beschwerden und davon, wie die Messungen zustande kamen.",
+      "frage": "Mein FEV1 hat sich um mehr als die übliche Messschwankung verändert – was zeigt das zusammen mit FVC und FEV1/FVC?",
+      "quelle": "Pellegrino R et al.: Interpretative strategies for lung function tests (ATS/ERS Task Force). Eur Respir J 2005;26:948–968 (Abschnitt zu Änderungen über die Zeit)"
+    },
+    {
+      "id": "belastung-ve-vco2-unter-30",
+      "system": "belastung",
+      "wenn": [{"wert": "VE/VCO2-Slope", "unter": 30, "einheiten": [""]}],
+      "bedeutung": "Der VE/VCO2-Slope sagt, wie viel Luft unter Belastung für das abgeatmete Kohlendioxid bewegt wird. Unter 30 liegt er in der ersten von vier Klassen, die EACPR und AHA für die Atemeffizienz unter Belastung beschreiben: Es wird nicht mehr Luft bewegt, als der Gasaustausch üblicherweise braucht.",
+      "frage": "Wie passt meine Atemeffizienz (VE/VCO2-Slope) zu den übrigen Werten des Belastungstests?",
+      "quelle": "Guazzi M et al.: EACPR/AHA Scientific Statement – Clinical recommendations for cardiopulmonary exercise testing data assessment in specific patient populations. Circulation 2012;126:2261–2274"
+    },
+    {
+      "id": "belastung-ve-vco2-ab-36",
+      "system": "belastung",
+      "wenn": [{"wert": "VE/VCO2-Slope", "ab": 36, "einheiten": [""]}],
+      "bedeutung": "Ab 36 ordnen EACPR und AHA den VE/VCO2-Slope in die oberen Klassen ein: Für das abgeatmete Kohlendioxid wird mehr Luft bewegt, als der Gasaustausch üblicherweise braucht. Das kommt allgemein bei Erkrankungen des Herzens oder der Lungengefäße vor, aber auch bei schnellem Atmen aus anderen Gründen; mit dem Alter steigt der Wert außerdem etwas.",
+      "frage": "Mein VE/VCO2-Slope liegt ab 36 – was bedeutet das zusammen mit den anderen Werten des Tests?",
+      "quelle": "Guazzi M et al.: EACPR/AHA Scientific Statement – Clinical recommendations for cardiopulmonary exercise testing data assessment in specific patient populations. Circulation 2012;126:2261–2274"
+    },
+    {
+      "id": "belastung-atemreserve-unter-15",
+      "system": "belastung",
+      "wenn": [{"wert": "Atemreserve", "unter": 15, "einheiten": ["%"]}],
+      "bedeutung": "Bleibt bei höchster Belastung weniger als etwa 15 % Atemreserve, war die Atmung nach ATS/ACCP nahe an ihrer Grenze; allgemein spricht das dafür, dass die Atmung die Belastung mit begrenzt hat (ventilatorische Limitierung). Sehr gut Trainierte schöpfen ihre Atemreserve allerdings auch ohne Lungenproblem weitgehend aus.",
+      "frage": "Meine Atemreserve war bei höchster Belastung klein – hat die Atmung meinen Test begrenzt?",
+      "quelle": "American Thoracic Society/American College of Chest Physicians: ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277"
+    },
+    {
+      "id": "belastung-atemreserve-ab-15",
+      "system": "belastung",
+      "wenn": [{"wert": "Atemreserve", "ab": 15, "einheiten": ["%"]}],
+      "bedeutung": "Bleibt bei höchster Belastung etwa 15 % Atemreserve oder mehr, hat die Atmung nach ATS/ACCP die Belastung allgemein nicht begrenzt. Die Grenze setzen dann eher Herz und Kreislauf, die Muskulatur, der Trainingszustand oder ein früheres Ende des Tests.",
+      "frage": "Meine Atmung hatte am Ende des Tests noch Reserve – was hat dann meine Belastung begrenzt?",
+      "quelle": "American Thoracic Society/American College of Chest Physicians: ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277"
+    },
+    {
+      "id": "belastung-spo2-abfall",
+      "system": "belastung",
+      "wenn": [{"wert": "SpO2 in Ruhe", "minus": "SpO2 bei Belastungsende", "ab": 4, "einheiten": ["%"]}],
+      "bedeutung": "Fällt die Sauerstoffsättigung unter Belastung um 4 Prozentpunkte oder mehr, beschreiben ATS/ACCP und ERS das als Abfall der Sättigung unter Belastung: Der Gasaustausch in der Lunge kommt allgemein mit dem höheren Bedarf nicht ganz nach. Fingermessungen können bei Bewegung allerdings ungenau sein.",
+      "frage": "Meine Sauerstoffsättigung ist unter Belastung um 4 Prozentpunkte oder mehr gefallen – was bedeutet das für den Gasaustausch?",
+      "quelle": "ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277 · Radtke T et al.: ERS statement on standardisation of cardiopulmonary exercise testing in chronic lung diseases. Eur Respir Rev 2019;28:180101"
+    },
+    {
+      "id": "belastung-spo2-gehalten",
+      "system": "belastung",
+      "wenn": [{"wert": "SpO2 in Ruhe", "minus": "SpO2 bei Belastungsende", "unter": 4, "einheiten": ["%"]}],
+      "bedeutung": "Fällt die Sauerstoffsättigung bis zum Belastungsende um weniger als 4 Prozentpunkte, spricht das nach ATS/ACCP und ERS allgemein dafür, dass der Gasaustausch in der Lunge mit dem höheren Bedarf unter Belastung Schritt hält.",
+      "frage": "Meine Sauerstoffsättigung blieb unter Belastung fast gleich – wie passt das zu meinen Lungenfunktionswerten?",
+      "quelle": "ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277 · Radtke T et al.: ERS statement on standardisation of cardiopulmonary exercise testing in chronic lung diseases. Eur Respir Rev 2019;28:180101"
+    },
+    {
+      "id": "belastung-rer-ausbelastet",
+      "system": "belastung",
+      "wenn": [{"wert": "Maximaler RER", "ab": 1.1, "einheiten": [""]}],
+      "bedeutung": "Ein maximaler RER (Verhältnis von abgeatmetem Kohlendioxid zu aufgenommenem Sauerstoff) ab etwa 1,10 gilt nach ATS/ACCP und ERS als Zeichen, dass bis zur Ausbelastung getestet wurde. Dann beschreiben maximale Sauerstoffaufnahme und Belastung allgemein die tatsächliche Leistungsgrenze und nicht nur, wie weit getestet wurde.",
+      "frage": "Der Test lief bis zur Ausbelastung – was zeigen maximale Sauerstoffaufnahme und Belastung dann über meine Leistungsfähigkeit?",
+      "quelle": "ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277 · Radtke T et al.: ERS statement on standardisation of cardiopulmonary exercise testing in chronic lung diseases. Eur Respir Rev 2019;28:180101"
+    },
+    {
+      "id": "belastung-vo2-unter-84-prozent",
+      "system": "belastung",
+      "wenn": [{"wert": "Maximale Sauerstoffaufnahme", "soll_unter": 84}],
+      "bedeutung": "Liegt die maximale Sauerstoffaufnahme unter etwa 84 % des Sollwerts, nennt die Stellungnahme von ATS und ACCP die Belastbarkeit vermindert. Ob Herz und Kreislauf, Atmung, Muskulatur oder der Trainingszustand die Grenze setzen, zeigt allgemein erst das Zusammenspiel der übrigen Werte: Sauerstoffpuls, Atemreserve, Herzfrequenz und Sättigung.",
+      "frage": "Meine maximale Sauerstoffaufnahme liegt unter 84 % des Sollwerts – welcher Teil setzt bei mir die Grenze?",
+      "quelle": "ATS/ACCP Statement on Cardiopulmonary Exercise Testing. Am J Respir Crit Care Med 2003;167:211–277"
+    },
+    {
+      "id": "blutbild-who-anaemie-maenner",
+      "system": "blutbild",
+      "fuer": {"geschlecht": "m", "alter_ab": 15},
+      "wenn": [{"wert": "Hämoglobin", "unter": 13, "einheiten": ["g/dl"]}],
+      "bedeutung": "Unter 13 g/dl Hämoglobin nennt die WHO bei Männern ab 15 Jahren eine Anämie (Blutarmut). Das beschreibt den Wert, nicht seine Herkunft: Welche Art es ist, zeigen allgemein MCV und MCH (Größe und Farbstoffgehalt der roten Blutkörperchen), Ferritin und weitere Werte.",
+      "frage": "Mein Hämoglobin liegt unter der Grenze der WHO – welche Werte helfen, das einzuordnen?",
+      "quelle": "World Health Organization: Guideline on haemoglobin cutoffs to define anaemia in individuals and populations. Genf: WHO 2024 · WHO: Haemoglobin concentrations for the diagnosis of anaemia and assessment of severity. WHO/NMH/NHD/MNM/11.1, 2011"
+    },
+    {
+      "id": "blutbild-who-anaemie-frauen",
+      "system": "blutbild",
+      "fuer": {"geschlecht": "w", "alter_ab": 15},
+      "wenn": [{"wert": "Hämoglobin", "unter": 12, "einheiten": ["g/dl"]}],
+      "bedeutung": "Unter 12 g/dl Hämoglobin nennt die WHO bei Frauen ab 15 Jahren, die nicht schwanger sind, eine Anämie (Blutarmut); in der Schwangerschaft gilt 11 g/dl. Das beschreibt den Wert, nicht seine Herkunft: Welche Art es ist, zeigen allgemein MCV und MCH (Größe und Farbstoffgehalt der roten Blutkörperchen), Ferritin und weitere Werte.",
+      "frage": "Mein Hämoglobin liegt unter der Grenze der WHO – welche Werte helfen, das einzuordnen?",
+      "quelle": "World Health Organization: Guideline on haemoglobin cutoffs to define anaemia in individuals and populations. Genf: WHO 2024 · WHO: Haemoglobin concentrations for the diagnosis of anaemia and assessment of severity. WHO/NMH/NHD/MNM/11.1, 2011"
+    },
+    {
+      "id": "blutbild-mikrozytaer",
+      "system": "blutbild",
+      "wenn": [{"wert": "Hämoglobin", "lage": "unter"}, {"wert": "MCV", "lage": "unter"}],
+      "bedeutung": "Sind Hämoglobin und MCV beide unter dem Bereich, sind die roten Blutkörperchen kleiner als üblich (mikrozytär). Allgemein kommt das am häufigsten bei Eisenmangel vor; seltener steckt eine angeborene Variante des Blutfarbstoffs (etwa eine Thalassämie) oder eine lang anhaltende Entzündung dahinter. Ferritin hilft, das zu unterscheiden.",
+      "frage": "Hämoglobin und MCV liegen beide unter dem Bereich – was zeigen Ferritin und die Eisenwerte dazu?",
+      "quelle": "DGHO, Onkopedia-Leitlinie „Eisenmangel und Eisenmangelanämie“ (Deutsche Gesellschaft für Hämatologie und Medizinische Onkologie)"
+    },
+    {
+      "id": "blutbild-makrozytaer",
+      "system": "blutbild",
+      "wenn": [{"wert": "Hämoglobin", "lage": "unter"}, {"wert": "MCV", "lage": "ueber"}],
+      "bedeutung": "Ist Hämoglobin unter und MCV über dem Bereich, sind die roten Blutkörperchen größer als üblich (makrozytär). Allgemein kommt das bei einem Mangel an Vitamin B12 oder Folsäure vor, aber auch bei regelmäßigem Alkohol, Lebererkrankungen, einer Schilddrüsenunterfunktion oder durch manche Arzneimittel.",
+      "frage": "Hämoglobin liegt unter, MCV über dem Bereich – was zeigen Vitamin B12 und Folsäure dazu?",
+      "quelle": "Devalia V, Hamilton MS, Molloy AM: Guidelines for the diagnosis and treatment of cobalamin and folate disorders (British Society for Haematology). Br J Haematol 2014;166:496–513"
+    },
+    {
+      "id": "schilddruese-tsh-im-bereich",
+      "system": "schilddruese",
+      "wenn": [{"wert": "TSH", "lage": "im"}, {"wert": "fT4", "lage": "im", "wenn_gemessen": true}, {"wert": "fT3", "lage": "im", "wenn_gemessen": true}],
+      "bedeutung": "TSH ist nach den Leitlinien der erste Wert, an dem die Schilddrüsenfunktion gemessen wird: Die Hirnanhangsdrüse stellt ihn umso stärker ein, je weniger Schilddrüsenhormon im Blut ist. Liegt TSH im Bereich des Labors (und, wo gemessen, auch fT4 und fT3), spricht das allgemein für eine ausgeglichene Funktion; fT4 und fT3 kommen meist erst dazu, wenn TSH außerhalb liegt oder Beschwerden dazu passen.",
+      "frage": "Mein TSH liegt im Bereich – braucht es bei mir zusätzlich fT4 oder fT3?",
+      "quelle": "DEGAM S2k-Leitlinie „Erhöhter TSH-Wert in der Hausarztpraxis“, AWMF-Register 053-046 · Garber JR et al.: Clinical practice guidelines for hypothyroidism in adults (AACE/ATA). Thyroid 2012;22:1200–1235"
+    },
+    {
+      "id": "schilddruese-latent-unterfunktion",
+      "system": "schilddruese",
+      "wenn": [{"wert": "TSH", "lage": "ueber"}, {"wert": "fT4", "lage": "im"}],
+      "bedeutung": "Liegt TSH über dem Bereich und fT4 im Bereich, beschreiben die Leitlinien das als latente (subklinische) Schilddrüsenunterfunktion. TSH schwankt allgemein auch mit der Tageszeit, nach einer überstandenen Erkrankung und mit dem Alter; die Leitlinien wiederholen die Messung deshalb nach einigen Wochen bis Monaten, bevor sie den Befund einordnen.",
+      "frage": "TSH liegt über, fT4 im Bereich – wann ist eine Kontrollmessung sinnvoll?",
+      "quelle": "DEGAM S2k-Leitlinie „Erhöhter TSH-Wert in der Hausarztpraxis“, AWMF-Register 053-046 · Pearce SHS et al.: 2013 ETA Guideline – Management of Subclinical Hypothyroidism. Eur Thyroid J 2013;2:215–228"
+    },
+    {
+      "id": "schilddruese-manifeste-unterfunktion",
+      "system": "schilddruese",
+      "wenn": [{"wert": "TSH", "lage": "ueber"}, {"wert": "fT4", "lage": "unter"}],
+      "bedeutung": "Liegt TSH über und fT4 unter dem Bereich, ist das nach den Leitlinien das Muster einer Schilddrüsenunterfunktion (manifeste Hypothyreose): Die Hirnanhangsdrüse treibt die Schilddrüse stärker an, weil zu wenig Hormon im Blut ist. Woher sie kommt, klärt eine ärztliche Untersuchung, oft mit Antikörpern und Ultraschall.",
+      "frage": "TSH liegt über, fT4 unter dem Bereich – was bedeutet dieses Muster bei mir, und was wird weiter untersucht?",
+      "quelle": "Garber JR et al.: Clinical practice guidelines for hypothyroidism in adults (AACE/ATA). Thyroid 2012;22:1200–1235 · DEGAM S2k-Leitlinie „Erhöhter TSH-Wert in der Hausarztpraxis“, AWMF-Register 053-046"
+    },
+    {
+      "id": "schilddruese-manifeste-ueberfunktion",
+      "system": "schilddruese",
+      "wenn": [{"wert": "TSH", "lage": "unter"}],
+      "oder": [{"wert": "fT4", "lage": "ueber"}, {"wert": "fT3", "lage": "ueber"}],
+      "bedeutung": "Liegt TSH unter dem Bereich und fT4 oder fT3 darüber, ist das nach den Leitlinien das Muster einer Schilddrüsenüberfunktion (manifeste Hyperthyreose): Die Hirnanhangsdrüse bremst, weil viel Hormon im Blut ist. Auch eingenommenes Schilddrüsenhormon kann dieses Muster ergeben; woher es kommt, klärt eine ärztliche Untersuchung.",
+      "frage": "TSH liegt unter, fT4 oder fT3 über dem Bereich – was bedeutet dieses Muster bei mir?",
+      "quelle": "Ross DS et al.: 2016 American Thyroid Association Guidelines for Diagnosis and Management of Hyperthyroidism and Other Causes of Thyrotoxicosis. Thyroid 2016;26:1343–1421"
+    },
+    {
+      "id": "schilddruese-latent-ueberfunktion",
+      "system": "schilddruese",
+      "wenn": [{"wert": "TSH", "lage": "unter"}, {"wert": "fT4", "lage": "im"}, {"wert": "fT3", "lage": "im"}],
+      "bedeutung": "Liegt TSH unter dem Bereich, fT4 und fT3 aber im Bereich, beschreiben die Leitlinien das als latente (subklinische) Schilddrüsenüberfunktion. Allgemein kann das auch vorübergehend sein, etwa nach einer Erkrankung, oder von eingenommenem Schilddrüsenhormon kommen; die Leitlinien wiederholen die Messung deshalb, bevor sie den Befund einordnen.",
+      "frage": "TSH liegt unter dem Bereich, fT4 und fT3 nicht – wann ist eine Kontrollmessung sinnvoll?",
+      "quelle": "Biondi B et al.: 2015 European Thyroid Association Guidelines on Diagnosis and Treatment of Endogenous Subclinical Hyperthyroidism. Eur Thyroid J 2015;4:149–163"
+    },
+    {
+      "id": "kreislauf-ab-140-90",
+      "system": "kreislauf",
+      "oder": [{"wert": "Blutdruck systolisch", "ab": 140, "einheiten": ["mmHg"]}, {"wert": "Blutdruck diastolisch", "ab": 90, "einheiten": ["mmHg"]}],
+      "bedeutung": "Ab 140 mmHg systolisch oder 90 mmHg diastolisch, in der Praxis gemessen, beginnt nach der europäischen Leitlinie ESH 2023 der Bereich, den sie Hypertonie (Bluthochdruck) nennt; festgestellt wird sie erst mit wiederholten Messungen an mehreren Tagen. Für Messungen zu Hause gilt 135/85 mmHg, für das 24-Stunden-Mittel 130/80, für die Nacht 120/70.",
+      "frage": "Mein Blutdruck lag ab 140/90 mmHg – unter welchen Bedingungen wurde gemessen, und braucht es weitere Messungen?",
+      "quelle": "Mancia G et al.: 2023 ESH Guidelines for the management of arterial hypertension. J Hypertens 2023;41:1874–2071"
+    },
+    {
+      "id": "kreislauf-isoliert-systolisch",
+      "system": "kreislauf",
+      "wenn": [{"wert": "Blutdruck systolisch", "ab": 140, "einheiten": ["mmHg"]}, {"wert": "Blutdruck diastolisch", "unter": 90, "einheiten": ["mmHg"]}],
+      "bedeutung": "Ist nur der systolische Wert ab 140 mmHg und der diastolische unter 90, nennt ESH 2023 das isolierte systolische Hypertonie.",
+      "bedeutung_ab_alter": {"ab": 60, "text": "Im höheren Alter ist sie die häufigste Form, weil die großen Arterien mit den Jahren steifer werden."},
+      "frage": "Nur mein systolischer Wert lag ab 140 mmHg – wie ist das einzuordnen?",
+      "quelle": "Mancia G et al.: 2023 ESH Guidelines for the management of arterial hypertension. J Hypertens 2023;41:1874–2071"
+    },
+    {
+      "id": "kreislauf-unter-130-80",
+      "system": "kreislauf",
+      "wenn": [{"wert": "Blutdruck systolisch", "unter": 130, "einheiten": ["mmHg"]}, {"wert": "Blutdruck diastolisch", "unter": 80, "einheiten": ["mmHg"]}],
+      "bedeutung": "Unter 130/80 mmHg liegt ein Wert unter den Grenzen, die ESH 2023 für Messungen in der Praxis, zu Hause und über 24 Stunden nennt; nur für die Nacht liegt die Grenze bei 120/70 mmHg. Wie aussagekräftig das ist, hängt davon ab, wie und wie oft gemessen wurde.",
+      "frage": "Unter welchen Bedingungen wurden meine Blutdruckwerte gemessen, und reichen sie für ein Bild?",
+      "quelle": "Mancia G et al.: 2023 ESH Guidelines for the management of arterial hypertension. J Hypertens 2023;41:1874–2071"
+    },
+    {
+      "id": "stoffwechsel-hba1c-ab-6-5",
+      "system": "stoffwechsel",
+      "wenn": [{"wert": "HbA1c", "ab": 6.5, "einheiten": ["%"]}],
+      "bedeutung": "Ab 6,5 % HbA1c beschreiben die Deutsche Diabetes Gesellschaft (DDG) und die Nationale VersorgungsLeitlinie den Wert als diabetestypisch; festgestellt wird ein Diabetes dort mit einem zweiten Wert, etwa einem Blutzucker. Manche Umstände verschieben HbA1c unabhängig vom Zucker, etwa eine Blutarmut oder Veränderungen der roten Blutkörperchen.",
+      "frage": "Mein HbA1c liegt ab 6,5 % – welcher zweite Wert gehört dazu?",
+      "quelle": "Nationale VersorgungsLeitlinie Typ-2-Diabetes, 2. Auflage 2023 (AWMF-Register nvl-001) · DDG-Praxisempfehlung „Definition, Klassifikation, Diagnostik und Differenzialdiagnostik des Diabetes mellitus“ (Deutsche Diabetes Gesellschaft, Update 2023)"
+    },
+    {
+      "id": "stoffwechsel-hba1c-zwischenbereich",
+      "system": "stoffwechsel",
+      "wenn": [{"wert": "HbA1c", "ab": 5.7, "unter": 6.5, "einheiten": ["%"]}],
+      "bedeutung": "Zwischen 5,7 und 6,4 % HbA1c liegt der Zwischenbereich, in dem die Deutsche Diabetes Gesellschaft (DDG) allein am HbA1c nicht entscheidet und eine Nüchternglukose dazunimmt; die amerikanische Diabetes-Gesellschaft nennt den Bereich Prädiabetes.",
+      "frage": "Mein HbA1c liegt im Zwischenbereich von 5,7 bis 6,4 % – gehört eine Nüchternglukose dazu?",
+      "quelle": "DDG-Praxisempfehlung „Definition, Klassifikation, Diagnostik und Differenzialdiagnostik des Diabetes mellitus“ (Deutsche Diabetes Gesellschaft, Update 2023) · American Diabetes Association: Standards of Care in Diabetes – 2024, Abschnitt 2. Diabetes Care 2024;47(Suppl 1):S20–S42"
+    },
+    {
+      "id": "niere-gfr-unter-60",
+      "system": "stoffwechsel",
+      "wenn": [{"wert": "GFR", "unter": 60, "einheiten": ["ml/min*"]}],
+      "bedeutung": "Unter 60 ml/min/1,73 m² beschreibt KDIGO eine eingeschränkte Filterleistung der Nieren; als chronisch gilt sie erst, wenn sie über mehr als drei Monate so bleibt. Weil die GFR meist aus dem Kreatinin berechnet wird, kann ein einzelner Wert allgemein auch mit Flüssigkeitsmangel, Muskelmasse oder einer kurzen Erkrankung schwanken.",
+      "frage": "Meine GFR liegt unter 60 ml/min – wie verlief sie über mehr als drei Monate?",
+      "quelle": "KDIGO 2024 Clinical Practice Guideline for the Evaluation and Management of Chronic Kidney Disease. Kidney Int 2024;105(4S):S117–S314"
+    },
+    {
+      "id": "infektion-anti-hbs-ab-10",
+      "system": "infektionen",
+      "wenn": [{"wert": "Anti-HBs", "ab": 10, "einheiten": ["IU/l", "mIU/ml", "IE/l", "mIE/ml", "U/l", "mU/ml"]}],
+      "bedeutung": "Anti-HBs sind Antikörper gegen Hepatitis B, wie sie eine Impfung oder eine überstandene Infektion hinterlässt. Ab 10 IE/l gilt nach der WHO ein Schutz als nachgewiesen; die STIKO sieht eine Impfung bei Menschen mit besonderem Risiko erst ab 100 IE/l, 4 bis 8 Wochen nach der letzten Dosis gemessen, als erfolgreich an.",
+      "frage": "Mein Anti-HBs liegt ab 10 IE/l – stammt er von einer Impfung, und reicht er für meine Situation?",
+      "quelle": "WHO: Hepatitis B vaccines – WHO position paper, July 2017. Wkly Epidemiol Rec 2017;92:369–392 · Ständige Impfkommission (STIKO): Empfehlungen der STIKO beim Robert Koch-Institut, Epidemiologisches Bulletin 4/2024 (Hepatitis B)"
+    },
+    {
+      "id": "infektion-anti-hbs-unter-10",
+      "system": "infektionen",
+      "wenn": [{"wert": "Anti-HBs", "unter": 10, "einheiten": ["IU/l", "mIU/ml", "IE/l", "mIE/ml", "U/l", "mU/ml"]}],
+      "bedeutung": "Unter 10 IE/l Anti-HBs ist nach der WHO kein Schutz gegen Hepatitis B nachgewiesen. Jahre nach einer erfolgreichen Impfung kann der Wert allerdings unter 10 fallen, ohne dass der Schutz verloren ist (Immungedächtnis); ob eine Impfung angeschlagen hat, zeigt allgemein der Wert 4 bis 8 Wochen nach der letzten Dosis.",
+      "frage": "Mein Anti-HBs liegt unter 10 IE/l – was heißt das zusammen mit meinen früheren Impfungen?",
+      "quelle": "WHO: Hepatitis B vaccines – WHO position paper, July 2017. Wkly Epidemiol Rec 2017;92:369–392 · Ständige Impfkommission (STIKO): Empfehlungen der STIKO beim Robert Koch-Institut, Epidemiologisches Bulletin 4/2024 (Hepatitis B)"
+    }
+  ]
+}

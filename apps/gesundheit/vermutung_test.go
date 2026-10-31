@@ -255,7 +255,7 @@ func TestSparseAssumptionsRenderOnEveryPage(t *testing.T) {
 	d.Speicher.Eintragen("anna", karg)
 	d.Speicher.Merken("70", &Eintrag{At: time.Now(), Person: "anna", Gelesen: &Gelesen{Dokument: 70}, Leser: leserVersion})
 	h := (&Web{Dienst: d, Secret: "s3cret", Admins: "admins"}).Handler()
-	seiten := []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1", "/export.csv"}
+	seiten := []string{"/werte", "/befunde", "/arzt", "/arzt?alle=1", "/export.csv", "/gesamtbild"}
 	for _, pfad := range seiten {
 		if rec := rufe(t, h, "GET", pfad, als("anna"), ""); rec.Code != 200 {
 			t.Errorf("%s: %d", pfad, rec.Code)

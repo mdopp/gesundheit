@@ -58,6 +58,7 @@ func (w *Web) Handler() http.Handler {
 	mux.HandleFunc("GET /befunde", w.befunde)
 	mux.HandleFunc("GET /befinden", w.befinden)
 	mux.HandleFunc("GET /arzt", w.arzt)
+	mux.HandleFunc("GET /gesamtbild", w.gesamtbildSeite)
 	mux.HandleFunc("POST /profil", w.profil)
 	mux.HandleFunc("POST /erklaerung", w.erklaerungSpeichern)
 	mux.HandleFunc("POST /tag", w.tag)
@@ -107,6 +108,7 @@ var seiten = []struct{ Pfad, Name string }{
 	{"/befunde", "Befunde"},
 	{"/befinden", "Wie es mir ging"},
 	{"/arzt", "Für den Arzt"},
+	{"/gesamtbild", "Gesamtbild"}, // #17
 }
 
 // start sends to the values: the page most people open the program for.
@@ -118,7 +120,7 @@ func (w *Web) start(rw http.ResponseWriter, r *http.Request) {
 	http.Redirect(rw, r, ziel, http.StatusSeeOther)
 }
 
-// rahmen writes a page with the nav of the four pages (the current one
+// rahmen writes a page with the nav of the five pages (the current one
 // marked), the people the viewer may open, and the message of a form.
 func (w *Web) rahmen(rw http.ResponseWriter, r *http.Request, p *Person, s sitzung, darf []Person, pfad, titel, body string) {
 	var b strings.Builder
@@ -854,6 +856,7 @@ mark{background:#ffe58a;color:#1d2730;padding:0 .1rem}
 .block{break-inside:avoid;margin:.8rem 0}.vergleich{padding-left:1.1rem;margin:.3rem 0}.vergleich li{margin:.1rem 0}
 .arzt>li{margin:.6rem 0 1rem;break-inside:avoid}.arzt p{margin:.15rem 0}.frage-text{font-weight:600}.url{display:none}
 .antwort{border-bottom:1px solid var(--line);height:1.8rem}
+.system{margin:1.2rem 0;padding-top:.2rem;border-top:1px solid var(--line)}.system h3{font-size:.95rem;margin:.9rem 0 .2rem}.regel{margin:.5rem 0;padding:.5rem .7rem;background:var(--flaeche);border-radius:8px;break-inside:avoid}.regel p{margin:.2rem 0}.quelle{font-size:.82rem}
 @media print{
  :root{--fg:#000;--bg:#fff;--k:#333;--line:#999;--akzent:#000;--ausser:#000}
  body{font-size:10.5pt}header,.seiten,.personen,.nicht-drucken,p.ok{display:none}main{max-width:none;padding:0}h2{margin:.2rem 0 .3rem}.block{margin:.5rem 0}.antwort{height:1.4rem}
