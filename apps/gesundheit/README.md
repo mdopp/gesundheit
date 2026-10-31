@@ -68,7 +68,7 @@ documents, this keeps what it read out of them, per person.
    under „Für wen?“ on the page, with `prüfen`; a person assigns it to
    themselves or, as an admin, to a child.
 3. **Shows** (#10, owner 2026-10-30: a small group of pages, the same nav on
-   each; Haus links to these paths, keep them stable). `/` leads to `/werte`.
+   each, five since #17; Haus links to these paths, keep them stable). `/` leads to `/werte`.
    Remote-User through Caddy's proxy secret (laib ADR 0012 §3); an admin
    (`Remote-Groups` has `ADMIN_GROUP`) also sees the children's pages, nobody
    another adult's.
@@ -116,6 +116,33 @@ documents, this keeps what it read out of them, per person.
      the values outside their range on their latest sheet, changes of more
      than 15 % or across the range, the values read with doubt — each a
      question with value, date and source document, no conclusion.
+   - **`/gesamtbild` „Gesamtbild“** (#17, owner 2026-10-31: „Und wie kriege
+     ich jetzt eine Einschätzung über meinen Gesamtzustand?“): per body system
+     (Lunge und Atmung, Belastbarkeit, Blutbild, Schilddrüse, Herz-Kreislauf
+     und Blutdruck, Leber/Niere/Stoffwechsel, Infektionen und Abwehr; only
+     systems with values) the course in words (first to last examination day,
+     the day's middle value, „kaum verändert“ under 5 %), what moves together
+     (curated sets: FEV1+FVC+FEV1/FVC, Hb+Hkt+Ery+MCV/MCH, TSH+fT4+fT3 …),
+     what such patterns can mean in general, and questions for the doctor.
+     The meanings come only from **`gesamtbild_regeln.json`**, one reviewable
+     data file: per rule the system, the pattern (values, directions,
+     thresholds), a plain German text phrased as a general possibility (never
+     about the person, no diagnosis, no advice; checked by `urteil` and a
+     guard against „du/dein“), the doctor's question and its source (ATS/ERS
+     2005 and 2022, GOLD, ATS/ACCP 2003, ERS 2019, EACPR/AHA 2012, WHO 2011/2024,
+     DGHO, BSH, DEGAM/AWMF, AACE/ATA, ETA, ESH 2023, DDG/NVL, ADA, KDIGO 2024,
+     WHO/STIKO). A state is judged on one examination day — the latest of the
+     rule's first value, every value of that day agreeing — a trend on the
+     first and last day the values share; ranges are always the report's own.
+     The profile's sex and birth year pick a rule only where the source is by
+     sex and age (WHO's anaemia limits) and add an age's sentence (the fixed
+     70 % ratio, isolated systolic hypertension). **Only values read without
+     doubt, confirmed or corrected count**: „prüfen“, an unconfirmed
+     „vermutlich“, and a number no body can measure (the table's
+     `plausibel`, e.g. FEV1/FVC 0 %, a Peak-Flow of 4620 l/min) are left out
+     and listed per system as „N Werte noch zu bestätigen“ with a link — a
+     misread never becomes a pattern. „Für den Arzt“ gets one question per
+     system a rule fits, at most four lines, under „Aus dem Gesamtbild“.
    - **Correcting a value** (#13, owner 2026-10-31: „warum gibst du mir
      nicht die Gelegenheit, den Wert zu korrigieren? Evtl. sogar mit
      Bildschnipsel daneben“): every row of `/werte` (its latest value) and

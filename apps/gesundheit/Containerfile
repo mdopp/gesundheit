@@ -2,7 +2,7 @@
 FROM docker.io/library/golang:1.27 AS build
 WORKDIR /src
 COPY go.mod ./
-COPY *.go ./
+COPY *.go *.json ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags=-s -o /gesundheit .
 
 FROM gcr.io/distroless/static-debian12:nonroot

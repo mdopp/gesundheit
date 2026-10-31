@@ -142,7 +142,9 @@ func (w *Web) arzt(rw http.ResponseWriter, r *http.Request) {
 	}
 	if r.FormValue("alle") == "" {
 		// #13: short, per examination; the long list is one link away
-		w.rahmen(rw, r, p, s, darf, "/arzt", "Für den Arzt · "+p.Anzeige, arztKurzHTML(arztKurz(v, rec, &pr), p, s, w.Dienst.now()))
+		k := arztKurz(v, rec, &pr)
+		k.Gesamtbild = gesamtbildFragen(gesamtbild(v, &pr)) // #17
+		w.rahmen(rw, r, p, s, darf, "/arzt", "Für den Arzt · "+p.Anzeige, arztKurzHTML(k, p, s, w.Dienst.now()))
 		return
 	}
 	fragen := arztFragen(v, &pr)

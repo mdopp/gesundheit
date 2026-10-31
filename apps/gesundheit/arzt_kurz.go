@@ -119,6 +119,9 @@ type Kurzfassung struct {
 	Mehr      int // „Außerdem“ lines left out
 	Unsicher  int // values read unsure, for the person's own note
 	Vermutet  int // values whose name or unit is assumed, to confirm (#15)
+	// Gesamtbild: per body system a rule of the Gesamtbild fits, its first
+	// question (#17); at most four lines, the sheet stays one sheet
+	Gesamtbild []string
 }
 
 // kanon is a value's name as compared across documents: the dictionary's,
@@ -619,6 +622,17 @@ func arztKurzHTML(k Kurzfassung, p *Person, s sitzung, jetzt time.Time) string {
 			fmt.Fprintf(&b, `<p class=k>und %d weitere unter „alle Einzelwerte“</p>`, k.Mehr)
 		}
 		b.WriteString(`</section>`)
+	}
+	if len(k.Gesamtbild) > 0 {
+		gesamt := "/gesamtbild"
+		if p.Key != s.Login {
+			gesamt += "?person=" + p.Key
+		}
+		b.WriteString(`<section class=block><h3>Aus dem Gesamtbild</h3><ul class=vergleich>`)
+		for _, f := range k.Gesamtbild {
+			b.WriteString(`<li class=gesamtbild-frage>` + html.EscapeString(f) + `</li>`)
+		}
+		fmt.Fprintf(&b, `</ul><p class="k nicht-drucken">Was solche Muster allgemein bedeuten können, mit Quellen: <a href="%s">Gesamtbild</a></p><div class=antwort></div></section>`, html.EscapeString(gesamt))
 	}
 	fmt.Fprintf(&b, `<p class=k>Jeder einzelne Wert mit seinem Befund: <a href="%s">alle Einzelwerte</a>.</p>`, html.EscapeString(alle))
 	b.WriteString(`<section class=block><h3>Eigene Fragen</h3><div class=antwort></div><div class=antwort></div></section>`)
