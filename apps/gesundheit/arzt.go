@@ -48,7 +48,7 @@ func arztFragen(v Verlauf, p *Profil) []ArztFrage {
 		e := einordnen(last, p)
 		if e.Lage == LageUeber || e.Lage == LageUnter {
 			out = append(out, ArztFrage{Art: "ausser", Name: n, Dokument: last.Dokument, Datum: last.Datum,
-				Text:  fmt.Sprintf("%s: %s am %s – %s %s (%s).", n, mitEinheit(last.Wert, last.Einheit), datumText(last.Datum), woherKurz(e), e.Status, bereichVon(last, e)),
+				Text:  fmt.Sprintf("%s: %s am %s – %s %s (%s%s).", n, mitEinheit(last.Wert, last.Einheit), datumText(last.Datum), woherKurz(e), e.Status, bereichVon(last, e), mitVermutet(last)),
 				Frage: "Was bedeutet dieser Wert für mich?"})
 		}
 		if vor := vorher(ms); vor != nil && falten(vor.Einheit) == falten(last.Einheit) {
@@ -62,6 +62,11 @@ func arztFragen(v Verlauf, p *Profil) []ArztFrage {
 				}
 				if gekreuzt {
 					t += "; vorher " + kurzStatus(ev) + ", jetzt " + kurzStatus(e)
+				}
+				if v := vermutetKurz(last); v != "" {
+					t += "; " + v
+				} else if v := vermutetKurz(*vor); v != "" {
+					t += "; vorher " + v
 				}
 				out = append(out, ArztFrage{Art: "aenderung", Name: n, Dokument: last.Dokument, Datum: last.Datum, Text: t + ".",
 					Frage: "Ist diese Veränderung von Bedeutung?"})
@@ -80,6 +85,14 @@ func arztFragen(v Verlauf, p *Profil) []ArztFrage {
 		}
 	}
 	return out
+}
+
+// mitVermutet is „; Name vermutet“ for an assumed value, "" for any other.
+func mitVermutet(m Messwert) string {
+	if v := vermutetKurz(m); v != "" {
+		return "; " + v
+	}
+	return ""
 }
 
 // kurzStatus is a status as the doctor's page says it: no „normal“, only the range.
@@ -133,6 +146,12 @@ func (w *Web) arzt(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fragen := arztFragen(v, &pr)
+	vermutet := 0
+	for _, m := range v.Werte {
+		if m.Vermutung != nil {
+			vermutet++
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, `<h2>Fragen an den Arzt: alle Einzelwerte <span class=k>· %s · Stand %s</span></h2>`, html.EscapeString(p.Anzeige), datumText(w.Dienst.now().Format("2006-01-02")))
 	b.WriteString(`<p class=k>Aus deinen Befunden zusammengestellt, so wie die Werte dort stehen. Die Seite bewertet nichts; die Fragen sind Vorschläge für das Gespräch.</p>`)
@@ -142,6 +161,7 @@ func (w *Web) arzt(rw http.ResponseWriter, r *http.Request) {
 		{"aenderung", fmt.Sprintf("Veränderungen um mehr als %s %% oder über den Bereich hinweg", zahlText(deutlichSchwelle*100)), ""},
 		{"pruefen", "Unsicher gelesen", ""},
 	}
+	b.WriteString(vermutetHinweis(vermutet, "/befunde"+mitPerson(p, s)))
 	if len(fragen) == 0 {
 		b.WriteString(`<p>Nichts außerhalb eines Bereichs, keine Veränderung um mehr als 15 %, nichts unsicher Gelesenes. Eigene Fragen kannst du unten aufschreiben.</p>`)
 	}

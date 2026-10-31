@@ -273,6 +273,16 @@ func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, s 
 	b.WriteString(gelesenAls(last, s.Login))
 	fmt.Fprintf(&b, `<p class=k>%s %s</p>`, html.EscapeString(aenderung(ms)), dokLink(last.Dokument, public))
 	b.WriteString(diagramm(ms, public))
+	// #15: each value of the row whose name or unit is assumed, to confirm with one tap
+	for i, m := range ms {
+		if m.Vermutung == nil {
+			continue
+		}
+		b.WriteString(vermutungHTML(m, person, zurueck))
+		if i < len(ms)-1 && m.ID != "" {
+			b.WriteString(korrekturHTML(WertStand{Messwert: m}, person, zurueck))
+		}
+	}
 	if last.ID != "" {
 		b.WriteString(korrekturHTML(WertStand{Messwert: last}, person, zurueck))
 	}
@@ -350,10 +360,13 @@ func befundHTML(e *Eintrag, public, person string, werte []WertStand, viewer, zu
 		return b.String()
 	}
 	// what still says „prüfen“: what was not taken, and the values the person has not spoken on yet
-	pruefen := len(g.Weg)
+	pruefen, vermutet := len(g.Weg), 0
 	for _, x := range werte {
 		if x.Pruefen && !x.Weg {
 			pruefen++
+		}
+		if x.Vermutung != nil && !x.Weg {
+			vermutet++
 		}
 	}
 	fmt.Fprintf(&b, `<li><p><time>%s</time> <b>%s</b>`, datumText(g.Datum), html.EscapeString(g.Titel))
@@ -371,6 +384,9 @@ func befundHTML(e *Eintrag, public, person string, werte []WertStand, viewer, zu
 	}
 	if pruefen > 0 {
 		fmt.Fprintf(&b, ` · <span class="marke pruefen">prüfen</span> %d %s`, pruefen, map[bool]string{true: "Stelle", false: "Stellen"}[pruefen == 1])
+	}
+	if vermutet > 0 {
+		fmt.Fprintf(&b, ` · <span class="marke vermutet">%d vermutet, bitte bestätigen</span>`, vermutet)
 	}
 	if g.Quelle == "bild" {
 		b.WriteString(` · aus dem Bild gelesen`)
@@ -391,7 +407,7 @@ func befundHTML(e *Eintrag, public, person string, werte []WertStand, viewer, zu
 	}
 	if len(werte) > 0 {
 		offen := ""
-		if pruefen > 0 {
+		if pruefen > 0 || vermutet > 0 {
 			offen = " open"
 		}
 		fmt.Fprintf(&b, `<details class=werte%s><summary>Die Werte ansehen und korrigieren</summary><ul class=werteliste>`, offen)
@@ -425,6 +441,7 @@ func wertZeileHTML(x WertStand, person, viewer, zurueck string) string {
 	}
 	b.WriteString(korrekturMarke(x.Messwert, viewer))
 	b.WriteString(gelesenAls(x.Messwert, viewer))
+	b.WriteString(vermutungHTML(x.Messwert, person, zurueck))
 	b.WriteString(korrekturHTML(x, person, zurueck))
 	b.WriteString(`</li>`)
 	return b.String()
@@ -832,6 +849,7 @@ table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.35rem .
 mark{background:#ffe58a;color:#1d2730;padding:0 .1rem}
 .korrektur-form label{display:inline-block;margin:.2rem .6rem .2rem 0}.korrektur-form label span{display:block;font-size:.85rem;color:var(--k)}.korrektur-form input{max-width:9rem}.knoepfe{margin:.4rem 0}
 .marke.ok{color:var(--ok);border-color:var(--ok)}
+.marke.vermutet{color:var(--akzent);border-color:var(--akzent);white-space:normal}.vermutung{margin:.3rem 0}.vermutung button{padding:.15rem .7rem;margin-left:.3rem}
 .werte summary{cursor:pointer;color:var(--akzent);font-size:.92rem}.werteliste{list-style:none;padding:0}.werteliste>li{padding:.3rem 0;border-bottom:1px dashed var(--line)}.werteliste .weg{color:var(--k)}
 .block{break-inside:avoid;margin:.8rem 0}.vergleich{padding-left:1.1rem;margin:.3rem 0}.vergleich li{margin:.1rem 0}
 .arzt>li{margin:.6rem 0 1rem;break-inside:avoid}.arzt p{margin:.15rem 0}.frage-text{font-weight:600}.url{display:none}

@@ -94,9 +94,15 @@ func TestTheDoctorsPageIsShortPerExamination(t *testing.T) {
 	if blut.Zeilen[0].Name != "Hämatokrit" || !blut.Zeilen[0].Gekreuzt {
 		t.Fatalf("the value that left its range leads: %+v", blut.Zeilen[0])
 	}
-	// outside its range on the later day, with nothing to compare it to: still said
-	if len(blut.NurNeu) != 1 || !strings.Contains(blut.NurNeu[0], "Hämoglobin: 11,8 g/dl – nur in dieser Untersuchung, laut Befund unter dem Bereich") {
-		t.Fatalf("only in the later examination: %q", blut.NurNeu)
+	// #15: the 2019 sheet's „Haemaglobin“ is assumed Hämoglobin and compared with it, marked
+	var hb *Vergleich
+	for i := range blut.Zeilen {
+		if blut.Zeilen[i].Name == "Hämoglobin" {
+			hb = &blut.Zeilen[i]
+		}
+	}
+	if hb == nil || hb.A.Wert != 13.6 || hb.A.Vermutung == nil || hb.B.Wert != 11.8 || len(blut.NurNeu) != 0 || !strings.Contains(vergleichText(*hb), "Name vermutet") {
+		t.Fatalf("Hämoglobin across both examinations: %+v, only in the later: %q", hb, blut.NurNeu)
 	}
 	// one value per day: the middle of the day's values in the unit both days share
 	zeilen := map[string]Vergleich{}

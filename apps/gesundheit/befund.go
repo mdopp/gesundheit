@@ -125,8 +125,11 @@ type Messwert struct {
 	Korrektur     string  `json:"korrektur,omitempty"`
 	KorrigiertVon string  `json:"korrigiert_von,omitempty"`
 	Gelesen       *Lesung `json:"gelesen_als,omitempty"`
-	ID            string  `json:"-"` // the value's name in a form (wertID)
-	Schluessel    string  `json:"-"`
+	// #15: the name or unit assumed for an obvious misread, until the person
+	// confirms or corrects it (vermutung.go); applied when read, never stored
+	Vermutung  *Vermutung `json:"vermutung,omitempty"`
+	ID         string     `json:"-"` // the value's name in a form (wertID)
+	Schluessel string     `json:"-"`
 
 	rohName, rohWert string // as the model wrote them, for the comparison with the OCR text
 }
@@ -166,7 +169,7 @@ func (g *Gelesen) ausDemBild(abschrift, ocr string) {
 		m := &g.Werte[i]
 		m.Quelle = "bild"
 		if anders := abweichung([]string{m.rohName, m.Name}, m.rohWert, ocr); anders != "" {
-			grund := fmt.Sprintf("%s steht im Bild als %s, im Text der Seite als %s", m.Name, m.rohWert, anders)
+			grund := fmt.Sprintf("%s steht im Bild als %s, "+grundTextDerSeite+" %s", m.Name, m.rohWert, anders)
 			m.Pruefen = true
 			m.PruefenGrund = strings.TrimPrefix(strings.TrimPrefix(grund, m.Name), " ")
 			g.Abweichungen = append(g.Abweichungen, grund)
@@ -334,7 +337,7 @@ func auswerten(doc int, titel, text, erstellt string, a Antwort, jetzt time.Time
 				}
 			}
 		} else if nah := aehnlich(name); nah != "" {
-			grund = fmt.Sprintf("„%s“ steht so in keinem Wörterbuch; gemeint vielleicht %s", name, nah)
+			grund = fmt.Sprintf("„%s“ "+grundKeinWoerterbuch+"; gemeint vielleicht %s", name, nah)
 		}
 		if grund != "" {
 			m.Pruefen, m.PruefenGrund = true, grund
