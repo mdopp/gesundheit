@@ -73,9 +73,9 @@ func einordnen(m Messwert, p *Profil) Einordnung {
 		}
 		return e
 	case soll != "":
-		w := "Sollwert laut Befund: " + mitEinheit(*m.Soll, m.Einheit) + "; eine Grenze nennt der Befund nicht"
-		if m.Soll == nil {
-			w = "eine Grenze nennt der Befund nicht"
+		w := "eine Grenze nennt der Befund nicht" // a sheet may print „% Soll“ without the predicted value
+		if m.Soll != nil {
+			w = "Sollwert laut Befund: " + mitEinheit(*m.Soll, m.Einheit) + "; " + w
 		}
 		return Einordnung{Lage: LageSoll, Status: soll, Woher: w}
 	}

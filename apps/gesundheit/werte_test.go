@@ -32,6 +32,8 @@ func TestStatusInWords(t *testing.T) {
 		{"over the sheet's LLN", Messwert{Name: "FEV1", Wert: 4.1, Einheit: "l", LLN: zf(3.9)}, LageIn, "im Normalbereich", "unterer Grenzwert laut Befund (LLN): 3,9 l"},
 		{"only the predicted value with its percentage", Messwert{Name: "FVC", Wert: 5.29, Einheit: "l", Soll: zf(5.1), SollProzent: zf(104)}, LageSoll, "104 % des Sollwerts", "Sollwert laut Befund: 5,1 l; eine Grenze nennt der Befund nicht"},
 		{"only the predicted value, the percentage is arithmetic", Messwert{Name: "FVC", Wert: 5.29, Einheit: "l", Soll: zf(5)}, LageSoll, "106 % des Sollwerts", "Sollwert laut Befund: 5 l; eine Grenze nennt der Befund nicht"},
+		// on the box 2026-10-31: the sheet printed „% Soll“ and no predicted value; the page panicked (nil Soll)
+		{"only the percentage, no predicted value", Messwert{Name: "FIVC", Wert: 5.29, Einheit: "l", SollProzent: zf(104)}, LageSoll, "104 % des Sollwerts", "eine Grenze nennt der Befund nicht"},
 		{"nothing on the sheet", Messwert{Name: "Vitamin D", Wert: 22, Einheit: "ng/ml"}, LageKein, "kein Bereich angegeben", ""},
 	} {
 		e := einordnen(c.m, nil)
