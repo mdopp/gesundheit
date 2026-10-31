@@ -66,6 +66,8 @@ func (w *Web) Handler() http.Handler {
 	mux.HandleFunc("POST /zuordnen", w.zuordnen)
 	mux.HandleFunc("GET /export.csv", w.export)
 	mux.HandleFunc("GET /abschrift", w.abschrift)
+	mux.HandleFunc("POST /korrektur", w.korrektur)
+	mux.HandleFunc("GET /schnipsel", w.schnipsel)
 	mux.HandleFunc("POST /loeschen", w.loeschen)
 	return mux
 }
@@ -181,7 +183,7 @@ func (w *Web) werte(rw http.ResponseWriter, r *http.Request) {
 		b.WriteString(`<p>Noch keine Werte. Sobald ein Laborblatt oder ein Befund in Paperless liegt (Scanner „Nur für mich“ oder Mail an das Dokumenten-Postfach mit Betreff „Arzt: …“), lese ich die Werte und zeige sie hier.</p>`)
 	} else {
 		b.WriteString(`<p class=k>Jede Zeile zeigt den letzten Wert mit Datum, wo er zu dem Bereich steht, den sein Befund nennt, und wie er sich seit dem Mal davor verändert hat. Ab drei Messungen zeigt ein Verlauf die Jahre; hell hinterlegt ist der Bereich laut Befund.</p>`)
-		b.WriteString(werteHTML(v, &pr, ex, s.Admin, w.Dienst.Public, p.Key, "/werte"+mitPerson(p, s)))
+		b.WriteString(werteHTML(v, &pr, ex, s, w.Dienst.Public, p.Key, "/werte"+mitPerson(p, s)))
 	}
 	b.WriteString(profilHTML(p.Key, pr))
 	fmt.Fprintf(&b, `<section class=k><p>%s</p><p><a href="/export.csv?person=%s">Als CSV herunterladen</a> · <form method=post action="/loeschen" class=inline onsubmit="return confirm('Alle Werte, Tagesnotizen und Angaben von %s löschen? Die Dokumente bleiben in Paperless.')"><input type=hidden name=person value="%s"><button class=k>Verlauf löschen</button></form></p></section>`,
@@ -197,7 +199,7 @@ func mitPerson(p *Person, s sitzung) string {
 }
 
 // werteHTML draws the rows, by group.
-func werteHTML(v Verlauf, pr *Profil, ex map[string]Erklaerung, admin bool, public, person, zurueck string) string {
+func werteHTML(v Verlauf, pr *Profil, ex map[string]Erklaerung, s sitzung, public, person, zurueck string) string {
 	byName := map[string][]Messwert{}
 	for _, m := range v.Werte {
 		byName[m.Name] = append(byName[m.Name], m)
@@ -224,7 +226,7 @@ func werteHTML(v Verlauf, pr *Profil, ex map[string]Erklaerung, admin bool, publ
 			gruppe = g
 			fmt.Fprintf(&b, `<section class=gruppe><h2>%s</h2>`, html.EscapeString(g))
 		}
-		b.WriteString(zeileHTML(n, ms, pr, ex, admin, public, person, zurueck))
+		b.WriteString(zeileHTML(n, ms, pr, ex, s, public, person, zurueck))
 	}
 	if gruppe != "" {
 		b.WriteString(`</section>`)
@@ -234,11 +236,11 @@ func werteHTML(v Verlauf, pr *Profil, ex map[string]Erklaerung, admin bool, publ
 
 // zeileHTML is one value: its name and marks, the latest value with its
 // date, the status in words, the change, the chart from three days on,
-// and „Was ist das?“.
-func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, admin bool, public, person, zurueck string) string {
+// „Was ist das?“, and the form to correct the latest value (#13).
+func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, s sitzung, public, person, zurueck string) string {
 	last := ms[len(ms)-1]
 	var b strings.Builder
-	b.WriteString(`<article class=zeile><h3>` + html.EscapeString(n))
+	b.WriteString(`<article class=zeile id="w-` + html.EscapeString(last.ID) + `"><h3>` + html.EscapeString(n))
 	if last.Neu {
 		b.WriteString(` <span class=marke title="Dieser Name steht nicht im Wörterbuch; er wird so geführt, wie der Befund ihn schreibt.">neu</span>`)
 	}
@@ -252,6 +254,7 @@ func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, ad
 		}
 		b.WriteString(` <span class="marke pruefen" title="` + html.EscapeString(grund) + `. Bitte im Dokument nachsehen.">prüfen</span>`)
 	}
+	b.WriteString(korrekturMarke(last, s.Login))
 	b.WriteString(`</h3>`)
 	e := einordnen(last, pr)
 	cls := "status"
@@ -267,9 +270,13 @@ func zeileHTML(n string, ms []Messwert, pr *Profil, ex map[string]Erklaerung, ad
 	if last.Pruefen && last.PruefenGrund != "" {
 		b.WriteString(`<p class=k>Beim Lesen unsicher: ` + html.EscapeString(last.PruefenGrund) + `.</p>`)
 	}
+	b.WriteString(gelesenAls(last, s.Login))
 	fmt.Fprintf(&b, `<p class=k>%s %s</p>`, html.EscapeString(aenderung(ms)), dokLink(last.Dokument, public))
 	b.WriteString(diagramm(ms, public))
-	b.WriteString(erklaerungHTML(n, ex, admin, zurueck))
+	if last.ID != "" {
+		b.WriteString(korrekturHTML(WertStand{Messwert: last}, person, zurueck))
+	}
+	b.WriteString(erklaerungHTML(n, ex, s.Admin, zurueck))
 	b.WriteString(`</article>`)
 	return b.String()
 }
@@ -282,6 +289,11 @@ func (w *Web) befunde(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec, _ := w.Dienst.Speicher.Record()
+	ws, _ := w.Dienst.Speicher.AlleWerte(p.Key)
+	proDok := map[int][]WertStand{}
+	for _, x := range ws {
+		proDok[x.Dokument] = append(proDok[x.Dokument], x)
+	}
 	var b strings.Builder
 	b.WriteString(w.neuZuLesen(p.Key))
 	var eigene []*Eintrag
@@ -304,7 +316,11 @@ func (w *Web) befunde(rw http.ResponseWriter, r *http.Request) {
 	} else {
 		b.WriteString(`<ul class=befunde>`)
 		for _, e := range eigene {
-			b.WriteString(befundHTML(e, w.Dienst.Public, p.Key))
+			doc := 0
+			if e.Gelesen != nil {
+				doc = e.Gelesen.Dokument
+			}
+			b.WriteString(befundHTML(e, w.Dienst.Public, p.Key, proDok[doc], s.Login, "/befunde"+mitPerson(p, s)))
 		}
 		b.WriteString(`</ul>`)
 	}
@@ -324,15 +340,22 @@ func (w *Web) befunde(rw http.ResponseWriter, r *http.Request) {
 	w.rahmen(rw, r, p, s, darf, "/befunde", "Befunde · "+p.Anzeige, b.String())
 }
 
-// befundHTML is one document: date, title, links, what was read, what to check.
-func befundHTML(e *Eintrag, public, person string) string {
+// befundHTML is one document: date, title, links, what was read, what to
+// check, and its values, each with its correction form (#13).
+func befundHTML(e *Eintrag, public, person string, werte []WertStand, viewer, zurueck string) string {
 	var b strings.Builder
 	g := e.Gelesen
 	if g == nil {
 		fmt.Fprintf(&b, `<li><p><b>Nicht lesbar</b> <span class=k>%s</span></p></li>`, html.EscapeString(e.Fehler))
 		return b.String()
 	}
-	pruefen := len(g.Weg) + len(g.Abweichungen) // every value that says „prüfen“ has its line in Abweichungen
+	// what still says „prüfen“: what was not taken, and the values the person has not spoken on yet
+	pruefen := len(g.Weg)
+	for _, x := range werte {
+		if x.Pruefen && !x.Weg {
+			pruefen++
+		}
+	}
 	fmt.Fprintf(&b, `<li><p><time>%s</time> <b>%s</b>`, datumText(g.Datum), html.EscapeString(g.Titel))
 	if g.Art != "" {
 		b.WriteString(` <span class=k>· ` + html.EscapeString(g.Art) + `</span>`)
@@ -366,6 +389,43 @@ func befundHTML(e *Eintrag, public, person string) string {
 		}
 		b.WriteString(`</ul>`)
 	}
+	if len(werte) > 0 {
+		offen := ""
+		if pruefen > 0 {
+			offen = " open"
+		}
+		fmt.Fprintf(&b, `<details class=werte%s><summary>Die Werte ansehen und korrigieren</summary><ul class=werteliste>`, offen)
+		for _, x := range werte {
+			b.WriteString(wertZeileHTML(x, person, viewer, zurueck))
+		}
+		b.WriteString(`</ul></details>`)
+	}
+	b.WriteString(`</li>`)
+	return b.String()
+}
+
+// wertZeileHTML is one value in a document's list: as it stands, its marks, its form.
+func wertZeileHTML(x WertStand, person, viewer, zurueck string) string {
+	var b strings.Builder
+	wann := ""
+	if x.Datum != "" {
+		wann = " · " + datumText(x.Datum)
+	}
+	if x.Weg {
+		fmt.Fprintf(&b, `<li class=weg id="w-%s"><s>%s %s</s> · gehört nicht dazu (%s) %s</li>`, html.EscapeString(x.ID), html.EscapeString(x.Name), html.EscapeString(mitEinheit(x.Wert, x.Einheit)+wann), wessenWort(x.Messwert, viewer), korrekturHTML(x, person, zurueck))
+		return b.String()
+	}
+	fmt.Fprintf(&b, `<li id="w-%s"><b>%s</b> %s`, html.EscapeString(x.ID), html.EscapeString(x.Name), html.EscapeString(mitEinheit(x.Wert, x.Einheit)+wann))
+	if x.Pruefen {
+		grund := x.PruefenGrund
+		if grund == "" {
+			grund = "beim Lesen unsicher"
+		}
+		b.WriteString(` <span class="marke pruefen" title="` + html.EscapeString(grund) + `">prüfen</span>`)
+	}
+	b.WriteString(korrekturMarke(x.Messwert, viewer))
+	b.WriteString(gelesenAls(x.Messwert, viewer))
+	b.WriteString(korrekturHTML(x, person, zurueck))
 	b.WriteString(`</li>`)
 	return b.String()
 }
@@ -767,11 +827,18 @@ table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.35rem .
 .ereignisse{padding-left:1rem;margin:.3rem 0}
 .offen{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:.5rem 0}
 .tage td,.tage th{font-size:.9rem}.tage{display:block;overflow-x:auto}
+.korrektur summary{cursor:pointer;color:var(--akzent);font-size:.92rem;margin-top:.2rem}.korrektur{margin:.3rem 0}
+.schnipsel{margin:.4rem 0}.schnipsel img{display:block;max-width:100%;height:auto;border:1px solid var(--line);border-radius:6px;min-height:2rem}.schnipsel figcaption{font-size:.85rem;color:var(--k)}
+mark{background:#ffe58a;color:#1d2730;padding:0 .1rem}
+.korrektur-form label{display:inline-block;margin:.2rem .6rem .2rem 0}.korrektur-form label span{display:block;font-size:.85rem;color:var(--k)}.korrektur-form input{max-width:9rem}.knoepfe{margin:.4rem 0}
+.marke.ok{color:var(--ok);border-color:var(--ok)}
+.werte summary{cursor:pointer;color:var(--akzent);font-size:.92rem}.werteliste{list-style:none;padding:0}.werteliste>li{padding:.3rem 0;border-bottom:1px dashed var(--line)}.werteliste .weg{color:var(--k)}
+.block{break-inside:avoid;margin:.8rem 0}.vergleich{padding-left:1.1rem;margin:.3rem 0}.vergleich li{margin:.1rem 0}
 .arzt>li{margin:.6rem 0 1rem;break-inside:avoid}.arzt p{margin:.15rem 0}.frage-text{font-weight:600}.url{display:none}
 .antwort{border-bottom:1px solid var(--line);height:1.8rem}
 @media print{
  :root{--fg:#000;--bg:#fff;--k:#333;--line:#999;--akzent:#000;--ausser:#000}
- body{font-size:11pt}header,.seiten,.personen,.nicht-drucken,.ok{display:none}main{max-width:none;padding:0}
+ body{font-size:10.5pt}header,.seiten,.personen,.nicht-drucken,p.ok{display:none}main{max-width:none;padding:0}h2{margin:.2rem 0 .3rem}.block{margin:.5rem 0}.antwort{height:1.4rem}
  a{color:inherit;text-decoration:none}.url{display:inline;font-size:8pt;color:#333}
 }
 `

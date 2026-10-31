@@ -115,6 +115,18 @@ type Messwert struct {
 	Pruefen      bool      `json:"pruefen,omitempty"`       // read unsure: the OCR text names another number, a unit that is none, a name near a known one
 	PruefenGrund string    `json:"pruefen_grund,omitempty"` // why, in German
 	At           time.Time `json:"at"`
+	// #13: the words of the text the value stands on and its number as the
+	// report writes it: where the snippet looks on the page
+	Beleg string `json:"beleg,omitempty"`
+	Roh   string `json:"roh,omitempty"`
+	// #13: the person's word, applied when the timeline is read (korrektur.go),
+	// never written by the reader: "korrigiert" | "bestaetigt", by whom, and
+	// the value as read when it was corrected
+	Korrektur     string  `json:"korrektur,omitempty"`
+	KorrigiertVon string  `json:"korrigiert_von,omitempty"`
+	Gelesen       *Lesung `json:"gelesen_als,omitempty"`
+	ID            string  `json:"-"` // the value's name in a form (wertID)
+	Schluessel    string  `json:"-"`
 
 	rohName, rohWert string // as the model wrote them, for the comparison with the OCR text
 }
@@ -289,7 +301,8 @@ func auswerten(doc int, titel, text, erstellt string, a Antwort, jetzt time.Time
 			g.Weg = append(g.Weg, fmt.Sprintf("%s (%s steht nicht im Beleg)", name, w.Wert))
 			continue
 		}
-		m := Messwert{Name: name, Wert: v, Einheit: strings.TrimSpace(w.Einheit), Datum: datum, Dokument: doc, At: jetzt, Gruppe: "Weitere", Neu: true, rohName: name, rohWert: strings.TrimSpace(w.Wert)}
+		m := Messwert{Name: name, Wert: v, Einheit: strings.TrimSpace(w.Einheit), Datum: datum, Dokument: doc, At: jetzt, Gruppe: "Weitere", Neu: true, rohName: name, rohWert: strings.TrimSpace(w.Wert),
+			Beleg: kurz(strings.Join(strings.Fields(w.Beleg), " "), 300), Roh: strings.TrimSpace(w.Wert)}
 		// #10: the predicted values the row prints, each only when its number stands in the row
 		soll := map[string]*float64{}
 		for _, s := range []struct{ name, roh string }{{"Sollwert", w.Soll}, {"% Soll", w.SollProzent}, {"LLN", w.LLN}} {

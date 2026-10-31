@@ -229,6 +229,9 @@ func mcpTools(d *Dienst) []mcpTool {
 					if m.Pruefen {
 						b.WriteString(" (unsicher gelesen, prüfen)")
 					}
+					if m.Korrektur == "korrigiert" {
+						b.WriteString(" (von Hand korrigiert)")
+					}
 					b.WriteString("\n")
 				}
 				if b.Len() == 0 {
