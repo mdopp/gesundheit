@@ -118,6 +118,7 @@ type Kurzfassung struct {
 	Ausserdem []string
 	Mehr      int // „Außerdem“ lines left out
 	Unsicher  int // values read unsure, for the person's own note
+	Vermutet  int // values whose name or unit is assumed, to confirm (#15)
 }
 
 // kanon is a value's name as compared across documents: the dictionary's,
@@ -278,6 +279,9 @@ func arztKurz(v Verlauf, rec *Record, p *Profil) Kurzfassung {
 		if m.Pruefen {
 			k.Unsicher++
 		}
+		if m.Vermutung != nil {
+			k.Vermutet++
+		}
 		if m.Datum == "" {
 			continue // without a day there is nothing to compare; the long list has it
 		}
@@ -422,6 +426,9 @@ func wertText(m Messwert, anzahl int, lo, hi float64) string {
 	if m.Korrektur == "korrigiert" {
 		t += " (korrigiert)"
 	}
+	if v := vermutetKurz(m); v != "" {
+		t += " (" + v + ")"
+	}
 	return t
 }
 
@@ -490,6 +497,12 @@ func vergleichText(z Vergleich) string {
 	}
 	if z.A.Korrektur == "korrigiert" || z.B.Korrektur == "korrigiert" {
 		dazu = append(dazu, "korrigiert")
+	}
+	for _, m := range []Messwert{z.A, z.B} {
+		if v := vermutetKurz(m); v != "" {
+			dazu = append(dazu, v)
+			break
+		}
 	}
 	if len(dazu) > 0 {
 		t += " (" + strings.Join(dazu, "; ") + ")"
@@ -565,6 +578,7 @@ func arztKurzHTML(k Kurzfassung, p *Person, s sitzung, jetzt time.Time) string {
 		}
 		fmt.Fprintf(&b, `<p class="hinweis nicht-drucken">%d %s unsicher gelesen. Unter <a href="%s">Befunde</a> kannst du sie mit dem Ausschnitt der Seite prüfen und korrigieren; was du korrigierst, steht dann auch hier.</p>`, k.Unsicher, werte, html.EscapeString(befunde))
 	}
+	b.WriteString(vermutetHinweis(k.Vermutet, befunde))
 	if len(k.Bloecke) == 0 && len(k.Ausserdem) == 0 {
 		b.WriteString(`<p>Noch keine Werte mit Datum, die sich vergleichen lassen. Eigene Fragen kannst du unten aufschreiben.</p>`)
 	}

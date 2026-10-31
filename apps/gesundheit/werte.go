@@ -343,6 +343,9 @@ func diagramm(ms []Messwert, public string) string {
 		if m.Pruefen {
 			title += " · prüfen"
 		}
+		if m.Vermutung != nil {
+			title += " · " + vermutungText(m)
+		}
 		kreis := fmt.Sprintf(`<circle class="%s" cx="%.1f" cy="%.1f" r="3.5"><title>%s</title></circle>`, cls, xs(m.Datum), ys(m.Wert), html.EscapeString(title))
 		if href := dokURL(m.Dokument, public); href != "" {
 			kreis = `<a href="` + href + `">` + kreis + `</a>`

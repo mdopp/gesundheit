@@ -232,6 +232,9 @@ func mcpTools(d *Dienst) []mcpTool {
 					if m.Korrektur == "korrigiert" {
 						b.WriteString(" (von Hand korrigiert)")
 					}
+					if m.Vermutung != nil {
+						b.WriteString(" (" + gelesenWie(m) + ", " + vermutungText(m) + ")")
+					}
 					b.WriteString("\n")
 				}
 				if b.Len() == 0 {

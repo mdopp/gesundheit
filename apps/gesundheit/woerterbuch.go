@@ -303,10 +303,10 @@ func einheitGrund(a *Analyt, u string) string {
 				return ""
 			}
 		}
-		return fmt.Sprintf("die Einheit „%s“ passt nicht, %s steht in %s", u, a.Name, strings.Join(a.Einheiten, " oder "))
+		return fmt.Sprintf(grundEinheitPasst+"%s“ passt nicht, %s steht in %s", u, a.Name, strings.Join(a.Einheiten, " oder "))
 	}
 	if !einheitForm(u) {
-		return fmt.Sprintf("„%s“ ist keine Einheit", u)
+		return fmt.Sprintf("„%s“ "+grundKeineEinheit, u)
 	}
 	return ""
 }

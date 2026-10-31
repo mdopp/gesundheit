@@ -24,6 +24,7 @@ import (
 
 // Lesung is a value as the reader read it, kept beside a correction.
 type Lesung struct {
+	Name    string  `json:"name,omitempty"` // #15: when the person named it otherwise
 	Wert    float64 `json:"wert"`
 	Einheit string  `json:"einheit"`
 	Datum   string  `json:"datum"`
@@ -31,7 +32,8 @@ type Lesung struct {
 
 // Korrektur is the person's word on one value.
 type Korrektur struct {
-	Aktion  string   `json:"aktion"` // korrigiert | bestaetigt | weg
+	Aktion  string   `json:"aktion"`         // korrigiert | bestaetigt | weg
+	Name    string   `json:"name,omitempty"` // #15: the name, when the person named it otherwise than read
 	Wert    *float64 `json:"wert,omitempty"`
 	Einheit string   `json:"einheit,omitempty"`
 	Datum   string   `json:"datum,omitempty"`
@@ -72,7 +74,9 @@ func wertID(schl string) string {
 	return fmt.Sprintf("%016x", h.Sum64())
 }
 
-// anwenden lays the person's words over what the reader read. A word finds
+// anwenden lays the person's words over what the reader read, and on a
+// value nobody has spoken on the likely name and unit of a misread (#15,
+// vermuten): the person's word always wins. A word finds
 // its value by its key; else by its document, day, number and unit (a
 // re-read that renamed it); else, when the document is still the person's,
 // the person's value stands by itself (a re-read that lost it).
@@ -83,7 +87,7 @@ func anwenden(roh []Messwert, ks map[string]Korrektur, eigenes func(doc int) boo
 	benutzt := map[string]bool{}
 	for i, m := range roh {
 		m.Schluessel, m.ID = keys[i], wertID(keys[i])
-		out[i] = WertStand{Messwert: m, roh: m}
+		out[i] = WertStand{Messwert: vermuten(m), roh: m}
 		frei[i] = true
 		if k, ok := ks[keys[i]]; ok {
 			out[i] = mitKorrektur(m, k)
@@ -122,7 +126,7 @@ func anwenden(roh []Messwert, ks map[string]Korrektur, eigenes func(doc int) boo
 }
 
 func mitKorrektur(m Messwert, k Korrektur) WertStand {
-	w := WertStand{Messwert: m, roh: m}
+	w := WertStand{Messwert: kanonisch(m), roh: m}
 	w.KorrigiertVon = k.Von
 	switch k.Aktion {
 	case "weg":
@@ -131,6 +135,12 @@ func mitKorrektur(m Messwert, k Korrektur) WertStand {
 		w.Korrektur, w.Pruefen, w.PruefenGrund = "bestaetigt", false, ""
 	case "korrigiert":
 		w.Gelesen = &Lesung{Wert: m.Wert, Einheit: m.Einheit, Datum: m.Datum}
+		if k.Name != "" {
+			if falten(k.Name) != falten(m.Name) {
+				w.Gelesen.Name = m.Name
+			}
+			benennen(&w.Messwert, k.Name)
+		}
 		if k.Wert != nil {
 			w.Wert = *k.Wert
 		}
@@ -246,8 +256,34 @@ func (w *Web) korrektur(rw http.ResponseWriter, r *http.Request) {
 	roh := wert.roh
 	k := Korrektur{Von: s.Login, At: w.Dienst.now()}
 	var meldung string
-	switch r.PostFormValue("aktion") {
+	aktion := r.PostFormValue("aktion")
+	if aktion == "bestaetigen" && wert.Vermutung != nil {
+		aktion = "annehmen" // „stimmt so“ on an assumed value: as it is shown
+	}
+	switch aktion {
+	case "annehmen":
+		// #15: „Ja“ — the assumed name and unit become the person's, the number as read
+		if wert.Vermutung == nil {
+			nein("an diesem Wert ist nichts vermutet")
+			return
+		}
+		v := roh.Wert
+		k.Aktion, k.Name, k.Wert, k.Einheit, k.Datum = "korrigiert", wert.Name, &v, wert.Einheit, roh.Datum
+		meldung = fmt.Sprintf("Bestätigt: %s %s. Das bleibt so, auch wenn Gesundheit den Befund neu liest.", wert.Name, mitEinheit(v, wert.Einheit))
 	case "korrigieren":
+		name := strings.TrimSpace(r.PostFormValue("name"))
+		if name == "" {
+			name = wert.Name
+		}
+		if len([]rune(name)) > 80 {
+			nein("der Name ist länger als 80 Zeichen")
+			return
+		}
+		a := finde(name)
+		if a != nil {
+			name = a.Name
+		}
+		gleicherName := falten(name) == falten(roh.Name) || (a != nil && a == finde(roh.Name))
 		eingabe := strings.TrimSpace(r.PostFormValue("wert"))
 		v, ok := zahl(eingabe)
 		if !ok {
@@ -266,13 +302,16 @@ func (w *Web) korrektur(rw http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if v == roh.Wert && einheit == roh.Einheit && datum == roh.Datum {
+		if v == roh.Wert && einheit == roh.Einheit && datum == roh.Datum && gleicherName {
 			k.Aktion = "bestaetigt"
 			meldung = fmt.Sprintf("Gemerkt: %s stimmt so.", roh.Name)
 			break
 		}
 		k.Aktion, k.Wert, k.Einheit, k.Datum = "korrigiert", &v, einheit, datum
-		meldung = fmt.Sprintf("Korrigiert: %s %s am %s. Das bleibt so, auch wenn Gesundheit den Befund neu liest.", roh.Name, mitEinheit(v, einheit), datumText(datum))
+		if !gleicherName {
+			k.Name = name
+		}
+		meldung = fmt.Sprintf("Korrigiert: %s %s am %s. Das bleibt so, auch wenn Gesundheit den Befund neu liest.", name, mitEinheit(v, einheit), datumText(datum))
 	case "bestaetigen":
 		k.Aktion = "bestaetigt"
 		meldung = fmt.Sprintf("Gemerkt: %s stimmt so.", roh.Name)
@@ -311,7 +350,7 @@ func korrekturMarke(m Messwert, viewer string) string {
 	case "korrigiert":
 		titel := ""
 		if m.Gelesen != nil {
-			titel = "Gelesen als " + mitEinheit(m.Gelesen.Wert, m.Gelesen.Einheit) + " am " + datumText(m.Gelesen.Datum)
+			titel = "Gelesen als " + strings.TrimSpace(m.Gelesen.Name+" "+mitEinheit(m.Gelesen.Wert, m.Gelesen.Einheit)) + " am " + datumText(m.Gelesen.Datum)
 		}
 		return ` <span class="marke ok" title="` + html.EscapeString(titel) + `">` + wessenWort(m, viewer) + ` korrigiert</span>`
 	case "bestaetigt":
@@ -330,7 +369,7 @@ func gelesenAls(m Messwert, viewer string) string {
 	if g.Datum != "" {
 		wann = " am " + datumText(g.Datum)
 	}
-	return `<p class=k>` + strings.ToUpper(wessenWort(m, viewer)[:1]) + wessenWort(m, viewer)[1:] + ` korrigiert – gelesen als ` + html.EscapeString(mitEinheit(g.Wert, g.Einheit)+wann) + `.</p>`
+	return `<p class=k>` + strings.ToUpper(wessenWort(m, viewer)[:1]) + wessenWort(m, viewer)[1:] + ` korrigiert – gelesen als ` + html.EscapeString(strings.TrimSpace(g.Name+" "+mitEinheit(g.Wert, g.Einheit))+wann) + `.</p>`
 }
 
 // korrekturHTML is the form beside a value: the snippet of its page (loaded
@@ -345,7 +384,7 @@ func korrekturHTML(w WertStand, person, zurueck string) string {
 		return b.String()
 	}
 	titel := "Korrigieren"
-	if w.Pruefen {
+	if w.Pruefen && w.Vermutung == nil {
 		titel = "Prüfen und korrigieren"
 	}
 	fmt.Fprintf(&b, `<details class=korrektur><summary>%s</summary>`, titel)
@@ -353,6 +392,7 @@ func korrekturHTML(w WertStand, person, zurueck string) string {
 		html.EscapeString(url.QueryEscape(person)), id, belegHTML(w.Messwert))
 	fmt.Fprintf(&b, `<form method=post action="/korrektur" class=korrektur-form><input type=hidden name=person value="%s"><input type=hidden name=id value="%s"><input type=hidden name=zurueck value="%s">`,
 		html.EscapeString(person), id, html.EscapeString(zurueck))
+	fmt.Fprintf(&b, `<label><span>Name</span><input name=name maxlength=80 value="%s"></label>`, html.EscapeString(w.Name))
 	fmt.Fprintf(&b, `<label><span>Wert</span><input name=wert inputmode=decimal value="%s"></label>`, html.EscapeString(zahlText(w.Wert)))
 	fmt.Fprintf(&b, `<label><span>Einheit</span><input name=einheit maxlength=20 value="%s"></label>`, html.EscapeString(w.Einheit))
 	fmt.Fprintf(&b, `<label><span>Datum</span><input type=date name=datum value="%s"></label>`, html.EscapeString(w.Datum))

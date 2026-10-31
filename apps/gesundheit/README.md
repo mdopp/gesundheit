@@ -146,6 +146,24 @@ documents, this keeps what it read out of them, per person.
      record): Paperless' thumbnail. Beside it always the words the value was
      read from, its number marked. Fetched for the person only, sent
      `private, no-store`, never written to `/data` or anywhere else.
+     The form names the value too (#15).
+   - **Assuming an obvious misread** (#15, owner 2026-10-31: „Kannst du
+     wahrscheinliche Werte annehmen und um Korrektur bitten?“,
+     `vermutung.go`): on a value nobody has spoken on, a name the dictionary
+     does not know is taken as the one dictionary name that fits — a
+     spelling variant (spaces, hyphens, „rn“ for „m“), an OCR confusion
+     („0“/„o“, „1“/„l“), or a letter or two misread (only letters: a digit or
+     a % is part of the value's name; short names only by the confusions) —
+     and a unit that is no unit, or not one the value is given in, as the one
+     unit the dictionary names for it. Two candidates or none: no assumption,
+     „prüfen“ as before. Never a number, never a unit conversion. Applied
+     when the timeline is read, never stored: the value counts under the
+     assumed name on `/werte` and „Für den Arzt“, marked „vermutlich
+     Hämoglobin – bitte bestätigen“ with „Ja“ (`aktion=annehmen`: it becomes
+     the person's correction, number as read) and „Korrigieren“ (the form);
+     „Für den Arzt“ says only „N Werte vermutlich richtig gelesen, bitte
+     bestätigen“ with a link. A name the dictionary knows in an older
+     reader's spelling („SYS“) stands under the dictionary's name.
    `/export.csv`, `/loeschen` (the person's folder; the record stays, so the
    documents are not read again).
 4. **Asks.** The daily note: four base questions (sleep, energy, mood 1–5;
