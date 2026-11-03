@@ -68,7 +68,7 @@ documents, this keeps what it read out of them, per person.
    under „Für wen?“ on the page, with `prüfen`; a person assigns it to
    themselves or, as an admin, to a child.
 3. **Shows** (#10, owner 2026-10-30: a small group of pages, the same nav on
-   each, five since #17; Haus links to these paths, keep them stable). `/` leads to `/werte`.
+   each, five since #17; Homes links to these paths, keep them stable). `/` leads to `/werte`.
    Remote-User through Caddy's proxy secret (laib ADR 0012 §3); an admin
    (`Remote-Groups` has `ADMIN_GROUP`) also sees the children's pages, nobody
    another adult's.

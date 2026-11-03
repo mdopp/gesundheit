@@ -86,8 +86,10 @@ func (d *Dienst) ladePersonen(ctx context.Context) []Person {
 			log.Printf("personen: %v", err)
 		}
 	}
-	// solaris: the retired stack's Paperless account (laib ADR 0015), still on boxes that migrated
-	dienste := map[string]bool{"admin": true, "dokumente": true, "haus": true, "gesundheit": true, "solaris": true}
+	// solaris: the retired stack's Paperless account (laib ADR 0015), still on boxes that migrated;
+	// homes: the Homes program's account, which was haus before laib#1021 — an old
+	// Paperless/LDAP-derived haus account may linger, so it stays out of the family too
+	dienste := map[string]bool{"admin": true, "dokumente": true, "homes": true, "haus": true, "gesundheit": true, "solaris": true}
 	for k := range d.Dienste {
 		dienste[k] = true
 	}
