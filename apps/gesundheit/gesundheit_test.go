@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -952,5 +953,21 @@ Hepatitis B (Anti-HBs) 0,07 COI`
 	weg := strings.Join(g.Weg, "; ")
 	if !strings.Contains(weg, "„ulm!“ (kein lesbarer Name im Text)") || !strings.Contains(weg, "Hepatitis B (Anti-HBs) (sein Datum steht so nicht im Text)") {
 		t.Fatalf("weg: %s", weg)
+	}
+}
+
+// laib#1021: Homes' account, homes now and haus before, is no family member.
+func TestDiensteSindKeinePersonen(t *testing.T) {
+	pl := newFakePaperless()
+	defer pl.srv.Close()
+	pl.users = append(pl.users, paperlessUser{ID: 5, Username: "homes", FirstName: "Homes"}, paperlessUser{ID: 6, Username: "haus", FirstName: "Haus"})
+	d := &Dienst{Paperless: &Paperless{URL: pl.srv.URL, Token: "t0ken"}, Ich: "gesundheit"}
+	var keys []string
+	for _, p := range d.ladePersonen(context.Background()) {
+		keys = append(keys, p.Key)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, ",") != "anna,ben" {
+		t.Fatalf("personen: %v", keys)
 	}
 }

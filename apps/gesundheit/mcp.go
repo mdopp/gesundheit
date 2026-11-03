@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// The Bote's way in (laib ADR 0016, 0022): the same small MCP server Haus's
+// The Bote's way in (laib ADR 0016, 0022): the same small MCP server Homes'
 // Haushalt speaks, JSON-RPC over POST with initialize, tools/list and
 // tools/call, one bearer. Three tools: the day's note, a person's course of
 // one value, and the questions to ask. The Bote names the person by login;

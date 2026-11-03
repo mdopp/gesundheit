@@ -102,7 +102,7 @@ func (w *Web) wer(rw http.ResponseWriter, r *http.Request) (*Person, sitzung, []
 }
 
 // seiten are the program's pages, in the nav's order (owner 2026-10-30:
-// a small group of pages; Haus links to these paths, keep them stable).
+// a small group of pages; Homes links to these paths, keep them stable).
 var seiten = []struct{ Pfad, Name string }{
 	{"/werte", "Werte"},
 	{"/befunde", "Befunde"},
